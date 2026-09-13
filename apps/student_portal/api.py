@@ -1,6 +1,8 @@
 import json
 import secrets
+import uuid
 from datetime import timedelta
+from decimal import Decimal, InvalidOperation
 from functools import wraps
 
 from django.contrib.auth import authenticate
@@ -8,6 +10,14 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
+from apps.security_center.models import SecurityEvent
+from apps.security_center.utils import (
+    check_rate_limit,
+    clear_rate_limit,
+    get_client_ip,
+    normalize_identifier,
+    record_security_event,
+)
 from apps.workouts.models import (
     WorkoutExercise,
     WorkoutPlan,
@@ -20,21 +30,93 @@ from apps.workouts.models import (
 from .models import StudentAccount, StudentApiToken
 
 
+def json_error(message, status):
+    return JsonResponse(
+        {"detail": message},
+        status=status,
+    )
+
+
 def read_json(request):
+    content_type = (
+        request.META
+        .get("CONTENT_TYPE", "")
+        .split(";")[0]
+        .strip()
+        .lower()
+    )
+
+    if content_type != "application/json":
+        return None
+
     try:
-        return json.loads(request.body.decode("utf-8") or "{}")
-    except Exception:
-        return {}
+        data = json.loads(
+            request.body.decode("utf-8") or "{}"
+        )
+    except (
+        json.JSONDecodeError,
+        UnicodeDecodeError,
+    ):
+        return None
+
+    return data if isinstance(data, dict) else None
+
+
+def parse_uuid(value):
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def parse_decimal(value, minimum, maximum):
+    if value in (None, ""):
+        return None, True
+
+    try:
+        value = Decimal(
+            str(value).replace(",", ".")
+        )
+    except (InvalidOperation, ValueError):
+        return None, False
+
+    if value < minimum or value > maximum:
+        return None, False
+
+    return value, True
+
+
+def parse_int(value, minimum, maximum):
+    if value in (None, ""):
+        return None, True
+
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return None, False
+
+    if value < minimum or value > maximum:
+        return None, False
+
+    return value, True
 
 
 def token_account(request):
-    auth = request.headers.get("Authorization", "")
+    auth = request.headers.get(
+        "Authorization",
+        "",
+    )
 
     if not auth.startswith("Bearer "):
-        return None
+        return None, None
+
+    plain_token = auth[7:].strip()
+
+    if not plain_token:
+        return None, None
 
     token_hash = StudentApiToken.hash_token(
-        auth[7:].strip()
+        plain_token
     )
 
     token = (
@@ -43,39 +125,53 @@ def token_account(request):
             "account",
             "account__student",
             "account__organization",
+            "account__user",
         )
         .filter(
             token_hash=token_hash,
             expires_at__gt=timezone.now(),
+            revoked_at__isnull=True,
             account__is_active=True,
+            account__organization__is_active=True,
+            account__user__is_active=True,
         )
         .first()
     )
 
     if not token:
-        return None
+        return None, None
 
     token.last_used_at = timezone.now()
-    token.save(update_fields=["last_used_at"])
+    token.save(
+        update_fields=["last_used_at"]
+    )
 
-    return token.account
+    return token.account, token
 
 
-def api_student_required(view):
-    @wraps(view)
+def api_student_required(view_func):
+    @wraps(view_func)
     def wrapped(request, *args, **kwargs):
-        account = token_account(request)
+        account, token = token_account(request)
 
         if not account:
-            return JsonResponse(
-                {"detail": "Token inválido ou expirado."},
-                status=401,
+            return json_error(
+                "Token inválido ou expirado.",
+                401,
             )
 
+        request.student_account = account
+        request.student_token = token
         request.student = account.student
-        request.student_organization = account.organization
+        request.student_organization = (
+            account.organization
+        )
 
-        return view(request, *args, **kwargs)
+        return view_func(
+            request,
+            *args,
+            **kwargs,
+        )
 
     return wrapped
 
@@ -83,45 +179,165 @@ def api_student_required(view):
 @csrf_exempt
 def login_api(request):
     if request.method != "POST":
-        return JsonResponse(
-            {"detail": "Método não permitido."},
-            status=405,
+        return json_error(
+            "Método não permitido.",
+            405,
         )
 
     data = read_json(request)
 
+    if data is None:
+        return json_error(
+            "JSON inválido.",
+            400,
+        )
+
+    email = normalize_identifier(
+        data.get("email", "")
+    )
+    password = str(
+        data.get("password", "")
+    )
+
+    ip = get_client_ip(request) or "unknown"
+
+    checks = [
+        (
+            "api-student-login-ip",
+            ip,
+            30,
+            600,
+            1800,
+        ),
+        (
+            "api-student-login-identity",
+            f"{ip}|{email}",
+            10,
+            600,
+            1800,
+        ),
+        (
+            "api-student-login-email",
+            email,
+            20,
+            1800,
+            1800,
+        ),
+    ]
+
+    retry_after = 0
+
+    for scope, key, limit, window, block in checks:
+        allowed, retry = check_rate_limit(
+            scope,
+            key,
+            limit=limit,
+            window_seconds=window,
+            block_seconds=block,
+        )
+        if not allowed:
+            retry_after = max(
+                retry_after,
+                retry,
+            )
+
+    if retry_after:
+        record_security_event(
+            request,
+            "api_student_login_rate_limited",
+            severity=SecurityEvent.Severity.WARNING,
+            identifier=email,
+        )
+        response = json_error(
+            "Muitas tentativas. Tente novamente mais tarde.",
+            429,
+        )
+        response["Retry-After"] = str(
+            retry_after
+        )
+        return response
+
     user = authenticate(
         request,
-        email=str(data.get("email", "")).strip().lower(),
-        password=str(data.get("password", "")),
+        email=email,
+        password=password,
     )
 
     account = (
         StudentAccount.objects
-        .select_related("student", "organization")
-        .filter(user=user, is_active=True)
+        .select_related(
+            "student",
+            "organization",
+            "user",
+        )
+        .filter(
+            user=user,
+            user__is_active=True,
+            is_active=True,
+            organization__is_active=True,
+        )
         .first()
         if user
         else None
     )
 
     if not account:
-        return JsonResponse(
-            {"detail": "Credenciais inválidas."},
-            status=401,
+        record_security_event(
+            request,
+            "api_student_login_failed",
+            severity=SecurityEvent.Severity.WARNING,
+            identifier=email,
+        )
+        return json_error(
+            "Credenciais inválidas.",
+            401,
         )
 
-    plain_token = secrets.token_urlsafe(40)
+    clear_rate_limit(
+        "api-student-login-identity",
+        f"{ip}|{email}",
+    )
+
+    now = timezone.now()
+
+    account.api_tokens.filter(
+        expires_at__lte=now,
+    ).delete()
+
+    active_tokens = list(
+        account.api_tokens.filter(
+            revoked_at__isnull=True,
+            expires_at__gt=now,
+        ).order_by("-created_at")
+    )
+
+    for old_token in active_tokens[4:]:
+        old_token.revoked_at = now
+        old_token.save(
+            update_fields=["revoked_at"]
+        )
+
+    plain_token = secrets.token_urlsafe(48)
 
     StudentApiToken.objects.create(
         account=account,
-        token_hash=StudentApiToken.hash_token(plain_token),
-        expires_at=timezone.now() + timedelta(days=30),
+        token_hash=StudentApiToken.hash_token(
+            plain_token
+        ),
+        expires_at=now + timedelta(days=30),
+    )
+
+    record_security_event(
+        request,
+        "api_student_login_success",
+        user=user,
+        identifier=email,
     )
 
     return JsonResponse(
         {
             "token": plain_token,
+            "expires_in_days": 30,
             "student": {
                 "name": account.student.name,
                 "email": account.student.email,
@@ -132,11 +348,30 @@ def login_api(request):
 
 @csrf_exempt
 @api_student_required
+def logout_api(request):
+    if request.method != "POST":
+        return json_error(
+            "Método não permitido.",
+            405,
+        )
+
+    request.student_token.revoked_at = (
+        timezone.now()
+    )
+    request.student_token.save(
+        update_fields=["revoked_at"]
+    )
+
+    return JsonResponse({"ok": True})
+
+
+@csrf_exempt
+@api_student_required
 def home_api(request):
     if request.method != "GET":
-        return JsonResponse(
-            {"detail": "Método não permitido."},
-            status=405,
+        return json_error(
+            "Método não permitido.",
+            405,
         )
 
     student = request.student
@@ -152,7 +387,10 @@ def home_api(request):
             weekday=today.weekday(),
             is_active=True,
         )
-        .select_related("routine", "routine__plan")
+        .select_related(
+            "routine",
+            "routine__plan",
+        )
     )
 
     routines = (
@@ -172,19 +410,26 @@ def home_api(request):
                 "name": student.name,
                 "email": student.email,
             },
+            "today": str(today),
             "today_workouts": [
                 {
-                    "routine_id": str(item.routine_id),
-                    "name": item.routine.name,
-                    "plan": item.routine.plan.name,
+                    "routine_id":
+                    str(item.routine_id),
+                    "name":
+                    item.routine.name,
+                    "plan":
+                    item.routine.plan.name,
                 }
                 for item in schedules
             ],
             "routines": [
                 {
-                    "routine_id": str(item.pk),
-                    "name": item.name,
-                    "plan": item.plan.name,
+                    "routine_id":
+                    str(item.pk),
+                    "name":
+                    item.name,
+                    "plan":
+                    item.plan.name,
                 }
                 for item in routines
             ],
@@ -196,32 +441,50 @@ def home_api(request):
 @api_student_required
 def workout_api(request):
     if request.method != "POST":
-        return JsonResponse(
-            {"detail": "Método não permitido."},
-            status=405,
+        return json_error(
+            "Método não permitido.",
+            405,
         )
 
     data = read_json(request)
+
+    if data is None:
+        return json_error(
+            "JSON inválido.",
+            400,
+        )
+
     action = data.get("action")
     student = request.student
     organization = request.student_organization
 
     if action in {"detail", "start"}:
+        routine_id = parse_uuid(
+            data.get("routine_id")
+        )
+
+        if not routine_id:
+            return json_error(
+                "Treino inválido.",
+                400,
+            )
+
         routine = (
             WorkoutRoutine.objects
             .select_related("plan")
             .filter(
-                pk=data.get("routine_id"),
+                pk=routine_id,
                 organization=organization,
                 plan__student=student,
+                plan__status=WorkoutPlan.Status.ACTIVE,
             )
             .first()
         )
 
         if not routine:
-            return JsonResponse(
-                {"detail": "Treino não encontrado."},
-                status=404,
+            return json_error(
+                "Treino não encontrado.",
+                404,
             )
 
         session = None
@@ -267,7 +530,8 @@ def workout_api(request):
                 "items": [
                     {
                         "item_id": str(item.pk),
-                        "name": item.exercise.display_name,
+                        "name":
+                        item.exercise.display_name,
                         "sets": item.sets,
                         "reps": item.reps,
                         "load_kg": (
@@ -275,11 +539,16 @@ def workout_api(request):
                             if item.load_kg is not None
                             else None
                         ),
-                        "rest_seconds": item.rest_seconds,
-                        "method": item.get_method_display(),
-                        "video_url": item.exercise.media_url,
-                        "embed_url": item.exercise.embed_video_url,
-                        "image_url": item.exercise.display_image_url,
+                        "rest_seconds":
+                        item.rest_seconds,
+                        "method":
+                        item.get_method_display(),
+                        "video_url":
+                        item.exercise.media_url,
+                        "embed_url":
+                        item.exercise.embed_video_url,
+                        "image_url":
+                        item.exercise.display_image_url,
                     }
                     for item in items
                 ],
@@ -287,10 +556,23 @@ def workout_api(request):
         )
 
     if action == "complete_set":
+        session_id = parse_uuid(
+            data.get("session_id")
+        )
+        item_id = parse_uuid(
+            data.get("item_id")
+        )
+
+        if not session_id or not item_id:
+            return json_error(
+                "Identificador inválido.",
+                400,
+            )
+
         session = (
             WorkoutSession.objects
             .filter(
-                pk=data.get("session_id"),
+                pk=session_id,
                 organization=organization,
                 student=student,
                 status=WorkoutSession.Status.IN_PROGRESS,
@@ -299,15 +581,15 @@ def workout_api(request):
         )
 
         if not session:
-            return JsonResponse(
-                {"detail": "Sessão não encontrada."},
-                status=404,
+            return json_error(
+                "Sessão não encontrada.",
+                404,
             )
 
         item = (
             WorkoutExercise.objects
             .filter(
-                pk=data.get("item_id"),
+                pk=item_id,
                 organization=organization,
                 routine=session.routine,
             )
@@ -315,21 +597,53 @@ def workout_api(request):
         )
 
         if not item:
-            return JsonResponse(
-                {"detail": "Exercício não encontrado."},
-                status=404,
+            return json_error(
+                "Exercício não encontrado.",
+                404,
             )
 
         try:
-            set_number = int(data.get("set_number", 0))
+            set_number = int(
+                data.get("set_number", 0)
+            )
         except (TypeError, ValueError):
             set_number = 0
 
         if not 1 <= set_number <= item.sets:
-            return JsonResponse(
-                {"detail": "Série inválida."},
-                status=400,
+            return json_error(
+                "Série inválida.",
+                400,
             )
+
+        load, load_ok = parse_decimal(
+            data.get("load_kg"),
+            Decimal("0"),
+            Decimal("2000"),
+        )
+        rpe, rpe_ok = parse_int(
+            data.get("rpe_actual"),
+            1,
+            10,
+        )
+        rir, rir_ok = parse_int(
+            data.get("rir_actual"),
+            0,
+            10,
+        )
+
+        if not (
+            load_ok
+            and rpe_ok
+            and rir_ok
+        ):
+            return json_error(
+                "Dados da série inválidos.",
+                400,
+            )
+
+        reps_done = str(
+            data.get("reps_done", "")
+        ).strip()[:40]
 
         WorkoutSetLog.objects.update_or_create(
             organization=organization,
@@ -337,26 +651,30 @@ def workout_api(request):
             workout_exercise=item,
             set_number=set_number,
             defaults={
-                "reps_done": str(
-                    data.get("reps_done", "")
-                ).strip(),
-                "load_kg": data.get("load_kg") or None,
-                "rpe_actual": data.get("rpe_actual") or None,
-                "rir_actual": (
-                    data.get("rir_actual")
-                    if data.get("rir_actual") != ""
-                    else None
-                ),
+                "reps_done": reps_done,
+                "load_kg": load,
+                "rpe_actual": rpe,
+                "rir_actual": rir,
             },
         )
 
         return JsonResponse({"ok": True})
 
     if action == "finish":
+        session_id = parse_uuid(
+            data.get("session_id")
+        )
+
+        if not session_id:
+            return json_error(
+                "Sessão inválida.",
+                400,
+            )
+
         session = (
             WorkoutSession.objects
             .filter(
-                pk=data.get("session_id"),
+                pk=session_id,
                 organization=organization,
                 student=student,
                 status=WorkoutSession.Status.IN_PROGRESS,
@@ -365,28 +683,39 @@ def workout_api(request):
         )
 
         if not session:
-            return JsonResponse(
-                {"detail": "Sessão não encontrada."},
-                status=404,
+            return json_error(
+                "Sessão não encontrada.",
+                404,
             )
 
-        session.status = WorkoutSession.Status.COMPLETED
+        session.status = (
+            WorkoutSession.Status.COMPLETED
+        )
         session.completed_at = timezone.now()
         session.save(
-            update_fields=["status", "completed_at"]
+            update_fields=[
+                "status",
+                "completed_at",
+            ]
         )
 
         return JsonResponse({"ok": True})
 
-    return JsonResponse(
-        {"detail": "Ação inválida."},
-        status=400,
+    return json_error(
+        "Ação inválida.",
+        400,
     )
 
 
 @csrf_exempt
 @api_student_required
 def history_api(request):
+    if request.method != "GET":
+        return json_error(
+            "Método não permitido.",
+            405,
+        )
+
     sessions = (
         WorkoutSession.objects
         .filter(
@@ -394,7 +723,10 @@ def history_api(request):
             student=request.student,
             status=WorkoutSession.Status.COMPLETED,
         )
-        .select_related("routine", "routine__plan")
+        .select_related(
+            "routine",
+            "routine__plan",
+        )
         .order_by("-completed_at")[:100]
     )
 
@@ -402,8 +734,10 @@ def history_api(request):
         {
             "history": [
                 {
-                    "routine": item.routine.name,
-                    "plan": item.routine.plan.name,
+                    "routine":
+                    item.routine.name,
+                    "plan":
+                    item.routine.plan.name,
                     "completed_at": (
                         item.completed_at.isoformat()
                         if item.completed_at

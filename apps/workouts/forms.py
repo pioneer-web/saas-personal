@@ -66,7 +66,11 @@ class WorkoutExerciseForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if organization:
             self.fields["exercise"].queryset = Exercise.objects.filter(
-                Q(organization__isnull=True) | Q(organization=organization)
+                Q(
+                    organization__isnull=True,
+                    publication_status=Exercise.PublicationStatus.APPROVED,
+                )
+                | Q(organization=organization)
             ).order_by("name_ptbr", "name")
 
 

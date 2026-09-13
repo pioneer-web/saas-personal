@@ -19,7 +19,10 @@ def exercise_list(request):
     organization = get_organization(request)
 
     exercises = Exercise.objects.filter(
-        Q(organization__isnull=True)
+        Q(
+            organization__isnull=True,
+            publication_status=Exercise.PublicationStatus.APPROVED,
+        )
         | Q(organization=organization)
     )
 
@@ -232,6 +235,7 @@ def exercise_personalize(request):
         Exercise,
         pk=exercise_id,
         organization__isnull=True,
+        publication_status=Exercise.PublicationStatus.APPROVED,
     )
 
     initial = {

@@ -1,14 +1,32 @@
 <!doctype html>
 <html lang="pt-br">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Login | SaaS Personal</title></head>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Login | SaaS Personal</title>
+<style>
+body{margin:0;background:#0c0c09;color:#fff;font-family:Arial,sans-serif}
+main{max-width:420px;margin:10vh auto;padding:24px}
+.card{background:#1a1715;border:1px solid #ffffff1a;border-radius:24px;padding:24px}
+input{box-sizing:border-box;width:100%;min-height:48px;border:1px solid #ffffff1a;border-radius:14px;background:#0c0c09;color:#fff;padding:12px}
+button{width:100%;min-height:48px;border:0;border-radius:14px;background:#ed5d26;color:#fff;font-weight:800}
+.error{margin-bottom:16px;padding:12px;border-radius:12px;background:#7f1d1d55;color:#fecaca}
+ul.errorlist{color:#fecaca}
+</style>
+</head>
 <body>
-  <main>
-    <h1>SaaS Personal</h1>
-    <form method="post">
-      {% csrf_token %}
-      {{ form.as_p }}
-      <button type="submit">Entrar</button>
-    </form>
-  </main>
+<main>
+<h1>SaaS Personal</h1>
+<div class="card">
+{% if security_error %}
+<div class="error">{{ security_error }}</div>
+{% endif %}
+<form method="post" autocomplete="on">
+{% csrf_token %}
+{{ form.as_p }}
+<button type="submit">Entrar</button>
+</form>
+</div>
+</main>
 </body>
 </html>

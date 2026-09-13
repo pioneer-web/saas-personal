@@ -1,5 +1,6 @@
 import re
 import secrets
+import uuid
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -8,12 +9,20 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.exceptions import PermissionDenied
 from django.db.models import Max
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from apps.exercises.models import Exercise
+from apps.security_center.models import SecurityEvent
+from apps.security_center.utils import (
+    check_rate_limit,
+    clear_rate_limit,
+    get_client_ip,
+    normalize_identifier,
+    record_security_event,
+)
 from apps.students.models import Student
 from apps.workouts.models import (
     WorkoutExercise,
@@ -42,13 +51,23 @@ def organization_or_403(request):
     return request.organization
 
 
+def parse_uuid(value):
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
 def safe_decimal(value):
     if value in (None, ""):
         return None
     try:
-        return Decimal(str(value).replace(",", "."))
+        value = Decimal(str(value).replace(",", "."))
     except (InvalidOperation, ValueError):
         return None
+    if value < 0 or value > Decimal("2000"):
+        return None
+    return value
 
 
 def safe_int(value, minimum, maximum):
@@ -119,6 +138,48 @@ def progression_for_item(item, student, organization):
     }
 
 
+def too_many_requests(message, retry_after):
+    response = HttpResponse(message, status=429)
+    response["Retry-After"] = str(retry_after)
+    return response
+
+
+def login_limits(request, email, prefix):
+    ip = get_client_ip(request) or "unknown"
+    checks = [
+        (f"{prefix}-ip", ip, 30, 600, 1800),
+        (
+            f"{prefix}-identity",
+            f"{ip}|{email}",
+            10,
+            600,
+            1800,
+        ),
+        (
+            f"{prefix}-email",
+            email,
+            20,
+            1800,
+            1800,
+        ),
+    ]
+
+    retry_after = 0
+
+    for scope, key, limit, window, block in checks:
+        allowed, retry = check_rate_limit(
+            scope,
+            key,
+            limit=limit,
+            window_seconds=window,
+            block_seconds=block,
+        )
+        if not allowed:
+            retry_after = max(retry_after, retry)
+
+    return retry_after
+
+
 @login_required
 def trainer_access_list(request):
     organization = organization_or_403(request)
@@ -132,9 +193,18 @@ def trainer_access_list(request):
         "student_portal/trainer_access.html",
         {
             "students": students,
-            "access_code": request.session.pop("student_access_code", None),
-            "access_student": request.session.pop("student_access_name", None),
-            "access_expiry": request.session.pop("student_access_expiry", None),
+            "access_code": request.session.pop(
+                "student_access_code",
+                None,
+            ),
+            "access_student": request.session.pop(
+                "student_access_name",
+                None,
+            ),
+            "access_expiry": request.session.pop(
+                "student_access_expiry",
+                None,
+            ),
         },
     )
 
@@ -144,14 +214,41 @@ def trainer_access_list(request):
 def trainer_generate_access(request):
     organization = organization_or_403(request)
 
+    ip = get_client_ip(request) or "unknown"
+    allowed, retry_after = check_rate_limit(
+        "generate-student-access",
+        f"{request.user.pk}|{ip}",
+        limit=30,
+        window_seconds=3600,
+        block_seconds=1800,
+    )
+
+    if not allowed:
+        record_security_event(
+            request,
+            "student_access_generation_rate_limited",
+            severity=SecurityEvent.Severity.WARNING,
+            user=request.user,
+        )
+        return too_many_requests(
+            "Muitas solicitações. Tente novamente mais tarde.",
+            retry_after,
+        )
+
+    student_id = parse_uuid(request.POST.get("student_id"))
+    if not student_id:
+        raise PermissionDenied("Aluno inválido.")
+
     student = get_object_or_404(
         Student,
-        pk=request.POST.get("student_id"),
+        pk=student_id,
         organization=organization,
     )
 
     if not student.email:
-        raise PermissionDenied("O aluno precisa ter e-mail cadastrado.")
+        raise PermissionDenied(
+            "O aluno precisa ter e-mail cadastrado."
+        )
 
     if StudentAccount.objects.filter(
         student=student,
@@ -178,7 +275,15 @@ def trainer_generate_access(request):
     request.session["student_access_code"] = code
     request.session["student_access_name"] = student.name
     request.session["student_access_expiry"] = (
-        timezone.localtime(expires_at).strftime("%d/%m/%Y %H:%M")
+        timezone.localtime(expires_at)
+        .strftime("%d/%m/%Y %H:%M")
+    )
+
+    record_security_event(
+        request,
+        "student_access_code_created",
+        user=request.user,
+        identifier=student.email,
     )
 
     return redirect("student_access:list")
@@ -187,14 +292,50 @@ def trainer_generate_access(request):
 def activate(request):
     error = ""
 
+    if request.user.is_authenticated:
+        account = StudentAccount.objects.filter(
+            user=request.user,
+            is_active=True,
+        ).first()
+        if account:
+            return redirect("student_portal:home")
+
     if request.method == "POST":
         form = StudentActivationForm(request.POST)
 
         if form.is_valid():
-            email = form.cleaned_data["email"].strip().lower()
+            email = normalize_identifier(
+                form.cleaned_data["email"]
+            )
             code = form.cleaned_data["code"]
 
-            candidates = (
+            retry_after = login_limits(
+                request,
+                email,
+                "student-activation",
+            )
+
+            if retry_after:
+                record_security_event(
+                    request,
+                    "student_activation_rate_limited",
+                    severity=SecurityEvent.Severity.WARNING,
+                    identifier=email,
+                )
+                response = render(
+                    request,
+                    "student_portal/activate.html",
+                    {
+                        "form": form,
+                        "error":
+                        "Muitas tentativas. Tente novamente mais tarde.",
+                    },
+                    status=429,
+                )
+                response["Retry-After"] = str(retry_after)
+                return response
+
+            invitation = (
                 StudentInvitation.objects
                 .select_related("student", "organization")
                 .filter(
@@ -203,27 +344,63 @@ def activate(request):
                     expires_at__gt=timezone.now(),
                 )
                 .order_by("-created_at")
+                .first()
             )
 
-            invitation = next(
-                (
-                    candidate
-                    for candidate in candidates
-                    if check_password(code, candidate.code_hash)
-                ),
-                None,
-            )
+            now = timezone.now()
 
-            if not invitation:
-                error = "Código inválido ou expirado."
+            if (
+                invitation
+                and invitation.locked_until
+                and invitation.locked_until > now
+            ):
+                error = (
+                    "Código inválido, expirado ou temporariamente bloqueado."
+                )
+
+            elif not invitation or not check_password(
+                code,
+                invitation.code_hash,
+            ):
+                if invitation:
+                    invitation.failed_attempts += 1
+
+                    if invitation.failed_attempts >= 5:
+                        invitation.locked_until = (
+                            now + timedelta(minutes=30)
+                        )
+
+                    invitation.save(
+                        update_fields=[
+                            "failed_attempts",
+                            "locked_until",
+                        ]
+                    )
+
+                record_security_event(
+                    request,
+                    "student_activation_failed",
+                    severity=SecurityEvent.Severity.WARNING,
+                    identifier=email,
+                )
+
+                error = (
+                    "Código inválido, expirado ou temporariamente bloqueado."
+                )
 
             elif StudentAccount.objects.filter(
                 student=invitation.student
             ).exists():
-                error = "Este aluno já possui acesso."
+                error = (
+                    "Não foi possível ativar o acesso. "
+                    "Entre ou fale com seu personal."
+                )
 
             elif User.objects.filter(email=email).exists():
-                error = "Já existe uma conta com este e-mail."
+                error = (
+                    "Não foi possível ativar o acesso. "
+                    "Entre ou fale com seu personal."
+                )
 
             else:
                 user = User.objects.create_user(
@@ -239,7 +416,22 @@ def activate(request):
                 )
 
                 invitation.used_at = timezone.now()
-                invitation.save(update_fields=["used_at"])
+                invitation.failed_attempts = 0
+                invitation.locked_until = None
+                invitation.save(
+                    update_fields=[
+                        "used_at",
+                        "failed_attempts",
+                        "locked_until",
+                    ]
+                )
+
+                record_security_event(
+                    request,
+                    "student_activation_success",
+                    user=user,
+                    identifier=email,
+                )
 
                 login(request, user)
                 return redirect("student_portal:home")
@@ -255,32 +447,98 @@ def activate(request):
 
 
 def student_login(request):
+    if request.user.is_authenticated:
+        account = StudentAccount.objects.filter(
+            user=request.user,
+            is_active=True,
+        ).first()
+        if account:
+            return redirect("student_portal:home")
+
     error = ""
 
     if request.method == "POST":
         form = StudentLoginForm(request.POST)
 
         if form.is_valid():
+            email = normalize_identifier(
+                form.cleaned_data["email"]
+            )
+            ip = get_client_ip(request) or "unknown"
+
+            retry_after = login_limits(
+                request,
+                email,
+                "student-login",
+            )
+
+            if retry_after:
+                record_security_event(
+                    request,
+                    "student_login_rate_limited",
+                    severity=SecurityEvent.Severity.WARNING,
+                    identifier=email,
+                )
+
+                response = render(
+                    request,
+                    "student_portal/login.html",
+                    {
+                        "form": form,
+                        "error":
+                        "Muitas tentativas. Tente novamente mais tarde.",
+                    },
+                    status=429,
+                )
+                response["Retry-After"] = str(retry_after)
+                return response
+
             user = authenticate(
                 request,
-                email=form.cleaned_data["email"].strip().lower(),
+                email=email,
                 password=form.cleaned_data["password"],
             )
 
             account = (
                 StudentAccount.objects
-                .filter(user=user, is_active=True)
+                .filter(
+                    user=user,
+                    user__is_active=True,
+                    is_active=True,
+                    organization__is_active=True,
+                )
                 .first()
                 if user
                 else None
             )
 
             if not account:
+                record_security_event(
+                    request,
+                    "student_login_failed",
+                    severity=SecurityEvent.Severity.WARNING,
+                    identifier=email,
+                )
                 error = "E-mail ou senha inválidos."
             else:
+                clear_rate_limit(
+                    "student-login-identity",
+                    f"{ip}|{email}",
+                )
+
                 login(request, user)
                 account.last_access_at = timezone.now()
-                account.save(update_fields=["last_access_at"])
+                account.save(
+                    update_fields=["last_access_at"]
+                )
+
+                record_security_event(
+                    request,
+                    "student_login_success",
+                    user=user,
+                    identifier=email,
+                )
+
                 return redirect("student_portal:home")
 
     else:
@@ -331,13 +589,22 @@ def home(request):
     )
 
     if request.method == "POST" and request.POST.get("routine_id"):
+        routine_id = parse_uuid(request.POST["routine_id"])
+
+        if not routine_id:
+            raise PermissionDenied("Treino inválido.")
+
         routine = get_object_or_404(
             WorkoutRoutine,
-            pk=request.POST["routine_id"],
+            pk=routine_id,
             organization=organization,
             plan__student=student,
         )
-        request.session["student_app_routine_id"] = str(routine.pk)
+
+        request.session["student_app_routine_id"] = str(
+            routine.pk
+        )
+
         return redirect("student_portal:workout")
 
     week_start = today - timedelta(days=today.weekday())
@@ -374,9 +641,15 @@ def workout(request):
     student = request.student
     organization = request.student_organization
 
-    routine_id = request.session.get("student_app_routine_id")
+    routine_id = parse_uuid(
+        request.session.get("student_app_routine_id")
+    )
 
     if not routine_id:
+        request.session.pop(
+            "student_app_routine_id",
+            None,
+        )
         return redirect("student_portal:home")
 
     routine = get_object_or_404(
@@ -418,20 +691,34 @@ def workout(request):
             return redirect("student_portal:workout")
 
         if action == "complete_set" and session:
+            item_id = parse_uuid(
+                request.POST.get("item_id")
+            )
+
+            if not item_id:
+                raise PermissionDenied("Exercício inválido.")
+
             item = get_object_or_404(
                 WorkoutExercise,
-                pk=request.POST.get("item_id"),
+                pk=item_id,
                 organization=organization,
                 routine=routine,
             )
 
             try:
-                set_number = int(request.POST.get("set_number", "0"))
+                set_number = int(
+                    request.POST.get("set_number", "0")
+                )
             except ValueError:
                 set_number = 0
 
             if not 1 <= set_number <= item.sets:
                 raise PermissionDenied("Série inválida.")
+
+            reps_done = (
+                request.POST.get("reps_done", "")
+                .strip()
+            )[:40]
 
             WorkoutSetLog.objects.update_or_create(
                 organization=organization,
@@ -439,8 +726,10 @@ def workout(request):
                 workout_exercise=item,
                 set_number=set_number,
                 defaults={
-                    "reps_done": request.POST.get("reps_done", "").strip(),
-                    "load_kg": safe_decimal(request.POST.get("load_kg")),
+                    "reps_done": reps_done,
+                    "load_kg": safe_decimal(
+                        request.POST.get("load_kg")
+                    ),
                     "rpe_actual": safe_int(
                         request.POST.get("rpe_actual"),
                         1,
@@ -459,13 +748,21 @@ def workout(request):
         if action == "finish" and session:
             session.status = WorkoutSession.Status.COMPLETED
             session.completed_at = timezone.now()
-            session.save(update_fields=["status", "completed_at"])
+            session.save(
+                update_fields=[
+                    "status",
+                    "completed_at",
+                ]
+            )
 
             StudentNotification.objects.create(
                 organization=organization,
                 student=student,
                 title="Treino concluído 💪",
-                body=f"{routine.name} foi registrado com sucesso.",
+                body=(
+                    f"{routine.name} foi registrado "
+                    "com sucesso."
+                ),
             )
 
             return redirect("student_portal:home")
@@ -475,7 +772,10 @@ def workout(request):
     if session:
         for log in session.set_logs.all():
             completed[
-                (str(log.workout_exercise_id), log.set_number)
+                (
+                    str(log.workout_exercise_id),
+                    log.set_number,
+                )
             ] = log
 
     workout_data = []
@@ -491,7 +791,10 @@ def workout(request):
                             (str(item.pk), number)
                         ),
                     }
-                    for number in range(1, item.sets + 1)
+                    for number in range(
+                        1,
+                        item.sets + 1,
+                    )
                 ],
                 "progression": progression_for_item(
                     item,
@@ -521,7 +824,10 @@ def history(request):
             student=request.student,
             status=WorkoutSession.Status.COMPLETED,
         )
-        .select_related("routine", "routine__plan")
+        .select_related(
+            "routine",
+            "routine__plan",
+        )
         .order_by("-completed_at")
     )
 
@@ -537,10 +843,21 @@ def progress(request):
     student = request.student
     organization = request.student_organization
 
-    if request.method == "POST" and request.POST.get("exercise_id"):
-        request.session["student_progress_exercise_id"] = (
+    if (
+        request.method == "POST"
+        and request.POST.get("exercise_id")
+    ):
+        exercise_id = parse_uuid(
             request.POST["exercise_id"]
         )
+
+        if not exercise_id:
+            raise PermissionDenied("Exercício inválido.")
+
+        request.session[
+            "student_progress_exercise_id"
+        ] = str(exercise_id)
+
         return redirect("student_portal:progress")
 
     exercise_ids = (
@@ -561,10 +878,19 @@ def progress(request):
         pk__in=exercise_ids
     ).order_by("name_ptbr", "name")
 
-    selected = Exercise.objects.filter(
-        pk=request.session.get("student_progress_exercise_id"),
-        pk__in=exercise_ids,
-    ).first()
+    selected_id = parse_uuid(
+        request.session.get(
+            "student_progress_exercise_id"
+        )
+    )
+
+    selected = None
+
+    if selected_id:
+        selected = Exercise.objects.filter(
+            pk=selected_id,
+            pk__in=exercise_ids,
+        ).first()
 
     points = []
     max_load = Decimal("0")
@@ -585,14 +911,23 @@ def progress(request):
         )
 
         if rows:
-            max_load = max(row["max_load"] for row in rows)
+            max_load = max(
+                row["max_load"]
+                for row in rows
+            )
 
         points = [
             {
                 "date": row["completed_at__date"],
                 "load": row["max_load"],
                 "percentage": (
-                    int((row["max_load"] / max_load) * 100)
+                    int(
+                        (
+                            row["max_load"]
+                            / max_load
+                        )
+                        * 100
+                    )
                     if max_load
                     else 0
                 ),
@@ -624,7 +959,9 @@ def notifications(request):
             read_at__isnull=True
         ).update(read_at=timezone.now())
 
-        return redirect("student_portal:notifications")
+        return redirect(
+            "student_portal:notifications"
+        )
 
     return render(
         request,
@@ -638,11 +975,16 @@ def profile(request):
     return render(
         request,
         "student_portal/profile.html",
-        {"student": request.student},
+        {
+            "student": request.student,
+            "account": request.student_account,
+        },
     )
 
 
 def manifest(request):
+    from django.http import JsonResponse
+
     return JsonResponse(
         {
             "name": "Personal - Aluno",
@@ -667,7 +1009,8 @@ def manifest(request):
 def service_worker(request):
     return HttpResponse(
         "self.addEventListener('install',()=>self.skipWaiting());"
-        "self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));"
+        "self.addEventListener('activate',"
+        "e=>e.waitUntil(self.clients.claim()));"
         "self.addEventListener('fetch',()=>{});",
         content_type="application/javascript",
     )
@@ -675,10 +1018,19 @@ def service_worker(request):
 
 def icon(request):
     svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">'
-        '<rect width="512" height="512" rx="120" fill="#0c0c09"/>'
-        '<circle cx="256" cy="256" r="180" fill="#ed5d26"/>'
-        '<text x="256" y="335" text-anchor="middle" font-family="Arial" '
-        'font-size="230" font-weight="900" fill="white">P</text></svg>'
+        '<svg xmlns="http://www.w3.org/2000/svg" '
+        'viewBox="0 0 512 512">'
+        '<rect width="512" height="512" rx="120" '
+        'fill="#0c0c09"/>'
+        '<circle cx="256" cy="256" r="180" '
+        'fill="#ed5d26"/>'
+        '<text x="256" y="335" text-anchor="middle" '
+        'font-family="Arial" font-size="230" '
+        'font-weight="900" fill="white">P</text>'
+        "</svg>"
     )
-    return HttpResponse(svg, content_type="image/svg+xml")
+
+    return HttpResponse(
+        svg,
+        content_type="image/svg+xml",
+    )

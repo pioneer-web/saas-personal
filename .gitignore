@@ -9,3 +9,14 @@ media/
 .vscode/
 .idea/
 .DS_Store
+
+# artefatos locais / segurança
+.backup_*/
+implementa_*.py
+implementa_*.sh
+*.log
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

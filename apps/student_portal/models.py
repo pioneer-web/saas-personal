@@ -48,6 +48,8 @@ class StudentInvitation(models.Model):
     code_hash = models.CharField(max_length=255)
     expires_at = models.DateTimeField()
     used_at = models.DateTimeField(null=True, blank=True)
+    failed_attempts = models.PositiveSmallIntegerField(default=0)
+    locked_until = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -56,6 +58,13 @@ class StudentInvitation(models.Model):
         related_name="student_invitations_created",
     )
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["expires_at", "used_at"]),
+            models.Index(fields=["student", "created_at"]),
+        ]
 
 
 class StudentApiToken(models.Model):
@@ -67,8 +76,16 @@ class StudentApiToken(models.Model):
     )
     token_hash = models.CharField(max_length=64, unique=True)
     expires_at = models.DateTimeField()
+    revoked_at = models.DateTimeField(null=True, blank=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["expires_at", "revoked_at"]),
+            models.Index(fields=["account", "created_at"]),
+        ]
 
     @staticmethod
     def hash_token(token):

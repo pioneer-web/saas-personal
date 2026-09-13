@@ -1,0 +1,47 @@
+name: Security checks
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+
+    env:
+      DJANGO_DEBUG: "0"
+      DJANGO_SECRET_KEY: "ci-only-secret-key-that-is-long-enough-for-security-checks-1234567890"
+      DJANGO_ALLOWED_HOSTS: "localhost"
+      DJANGO_SECURE_SSL_REDIRECT: "1"
+      POSTGRES_DB: "saas_personal"
+      POSTGRES_USER: "saas_personal"
+      POSTGRES_PASSWORD: "ci-only-password-not-used-for-production"
+      POSTGRES_HOST: "localhost"
+      POSTGRES_PORT: "5432"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pip-audit bandit
+
+      - name: Dependency vulnerability audit
+        run: pip-audit -r requirements.txt
+
+      - name: Static security analysis
+        run: bandit -r apps config -x "*/migrations/*" -ll
+
+      - name: Django deployment checks
+        run: python manage.py check --deploy
