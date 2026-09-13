@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="pt-br">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Painel | SaaS Personal</title></head>
+<body>
+  <main>
+    <h1>Etapa 1 funcionando</h1>
+    <p>Usuário: {{ request.user.email }}</p>
+    <p>Organização: {% if organization %}{{ organization.name }}{% else %}nenhuma vinculada ainda{% endif %}</p>
+    <form action="{% url 'logout' %}" method="post">{% csrf_token %}<button type="submit">Sair</button></form>
+  </main>
+</body>
+</html>
