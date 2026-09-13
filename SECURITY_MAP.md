@@ -58,3 +58,10 @@ UUID oculto na URL não é uma barreira de segurança. A proteção real é auto
 - Tela de equipe restrita ao OWNER.
 - request.membership explícito no middleware.
 - Backups e instaladores temporários removidos.
+
+
+
+## Decisão de segurança
+
+- MFA removido por decisão de produto.
+- Mantidos: senha forte, rate limit, cookies seguros, HTTPS/HSTS, CSRF, CSP, RBAC, isolamento multi-tenant, tokens revogáveis e auditoria.
