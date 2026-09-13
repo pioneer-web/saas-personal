@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from apps.exercises.models import Exercise
 from apps.students.models import Student
+from apps.organizations.permissions import trainer_or_owner_required
 
 from .forms import (
     TemplateApplyForm,
@@ -116,6 +117,7 @@ def progression_for_item(item, student, organization):
 
 
 @login_required
+@trainer_or_owner_required
 def plan_list(request):
     organization = organization_or_403(request)
     plans = (
@@ -137,6 +139,7 @@ def plan_list(request):
 
 
 @login_required
+@trainer_or_owner_required
 def plan_create(request):
     organization = organization_or_403(request)
 
@@ -159,6 +162,7 @@ def plan_create(request):
 
 
 @login_required
+@trainer_or_owner_required
 def plan_edit(request):
     organization = organization_or_403(request)
     plan_id = request.session.get("editing_workout_plan_id")
@@ -200,6 +204,7 @@ def plan_edit(request):
 
 
 @login_required
+@trainer_or_owner_required
 def routine_add(request):
     organization = organization_or_403(request)
     plan_id = request.session.get("editing_workout_plan_id")
@@ -227,6 +232,7 @@ def routine_add(request):
 
 
 @login_required
+@trainer_or_owner_required
 def routine_builder(request):
     organization = organization_or_403(request)
 
@@ -333,6 +339,7 @@ def routine_builder(request):
 
 
 @login_required
+@trainer_or_owner_required
 def student_workout_preview(request):
     organization = organization_or_403(request)
 
@@ -463,6 +470,7 @@ def student_workout_preview(request):
 
 
 @login_required
+@trainer_or_owner_required
 def workout_history(request):
     organization = organization_or_403(request)
     student_id = request.session.get("workout_history_student_id")
@@ -515,6 +523,7 @@ def workout_history(request):
 
 
 @login_required
+@trainer_or_owner_required
 def exercise_progress(request):
     organization = organization_or_403(request)
     student_id = request.session.get("progress_student_id")
@@ -668,6 +677,7 @@ def save_plan_as_template(request):
 
 
 @login_required
+@trainer_or_owner_required
 def template_list(request):
     organization = organization_or_403(request)
 
@@ -786,6 +796,7 @@ def template_apply(request):
 
 
 @login_required
+@trainer_or_owner_required
 def schedule_manage(request):
     organization = organization_or_403(request)
     plan_id = request.session.get("editing_workout_plan_id")
@@ -864,6 +875,7 @@ def schedule_manage(request):
 
 
 @login_required
+@trainer_or_owner_required
 def weekly_agenda(request):
     organization = organization_or_403(request)
     today = timezone.localdate()

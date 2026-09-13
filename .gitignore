@@ -20,3 +20,6 @@ htmlcov/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+pacote_*.py
+apply_etapa*.py

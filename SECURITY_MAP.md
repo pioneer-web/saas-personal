@@ -50,3 +50,11 @@ UUID oculto na URL não é uma barreira de segurança. A proteção real é auto
 4. WAF + rate limit no proxy/Cloudflare.
 5. Backup PostgreSQL criptografado com teste de restauração.
 6. Testes automáticos de isolamento entre tenants e DAST.
+
+
+## Pacote 4A.2A
+
+- RBAC OWNER / TRAINER / STAFF aplicado no backend.
+- Tela de equipe restrita ao OWNER.
+- request.membership explícito no middleware.
+- Backups e instaladores temporários removidos.

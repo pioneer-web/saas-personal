@@ -17,6 +17,7 @@ admin_path = (
 
 
 urlpatterns = [
+    path("equipe/", include("apps.organizations.urls")),
     path(
         "acessos-alunos/",
         include("apps.student_portal.trainer_urls"),

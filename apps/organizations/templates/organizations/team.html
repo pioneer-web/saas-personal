@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Equipe | Personal{% endblock %}
+{% block content %}
+<div class="space-y-6">
+  <div>
+    <div class="text-xs font-bold uppercase tracking-[.25em] text-[#ed5d26]">Controle de acesso</div>
+    <h1 class="mt-2 text-3xl font-black">Equipe</h1>
+    <p class="mt-1 text-sm text-[#b8b3af]">
+      OWNER: tudo. TRAINER: alunos, exercícios e treinos. STAFF: operações básicas.
+    </p>
+  </div>
+
+  {% for message in messages %}
+  <div class="rounded-2xl border border-white/10 bg-[#1a1715] p-4">{{ message }}</div>
+  {% endfor %}
+
+  <div class="grid gap-3">
+  {% for membership in memberships %}
+    <div class="rounded-[24px] border border-white/10 bg-[#1a1715] p-5">
+      <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div class="font-black">{{ membership.user.name|default:membership.user.email }}</div>
+          <div class="text-sm text-[#b8b3af]">{{ membership.user.email }}</div>
+          <div class="mt-2 text-xs">{{ membership.get_role_display }} · {% if membership.is_active %}Ativo{% else %}Desativado{% endif %}</div>
+        </div>
+
+        {% if membership.user_id != request.user.id %}
+        <div class="flex flex-col gap-2 sm:flex-row">
+          <form method="post" class="flex gap-2">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="change_role">
+            <input type="hidden" name="membership_id" value="{{ membership.id }}">
+            <select name="role" class="rounded-2xl border border-white/10 bg-[#0c0c09] px-3 py-2">
+              {% for value, label in roles %}
+              <option value="{{ value }}" {% if membership.role == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            <button class="rounded-2xl bg-[#ed5d26] px-4 py-2 font-bold">Salvar</button>
+          </form>
+
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="toggle_active">
+            <input type="hidden" name="membership_id" value="{{ membership.id }}">
+            <button class="rounded-2xl bg-white/5 px-4 py-2 font-bold">
+              {% if membership.is_active %}Desativar{% else %}Ativar{% endif %}
+            </button>
+          </form>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
+  </div>
+</div>
+{% endblock %}

@@ -15,6 +15,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from apps.exercises.models import Exercise
+from apps.organizations.permissions import trainer_or_owner_required
 from apps.security_center.models import SecurityEvent
 from apps.security_center.utils import (
     check_rate_limit,
@@ -181,6 +182,7 @@ def login_limits(request, email, prefix):
 
 
 @login_required
+@trainer_or_owner_required
 def trainer_access_list(request):
     organization = organization_or_403(request)
 
@@ -210,6 +212,7 @@ def trainer_access_list(request):
 
 
 @login_required
+@trainer_or_owner_required
 @require_POST
 def trainer_generate_access(request):
     organization = organization_or_403(request)

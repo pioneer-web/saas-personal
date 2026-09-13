@@ -5,6 +5,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 
 from .forms import ExerciseForm, GlobalExerciseForm
 from .models import Exercise
+from apps.organizations.permissions import trainer_or_owner_required
 
 
 def get_organization(request):
@@ -15,6 +16,7 @@ def get_organization(request):
 
 
 @login_required
+@trainer_or_owner_required
 def exercise_list(request):
     organization = get_organization(request)
 
@@ -113,6 +115,7 @@ def exercise_list(request):
 
 
 @login_required
+@trainer_or_owner_required
 def exercise_create(request):
     organization = get_organization(request)
 
@@ -145,6 +148,7 @@ def exercise_create(request):
 
 
 @login_required
+@trainer_or_owner_required
 def exercise_edit(request):
     organization = get_organization(request)
 
@@ -221,6 +225,7 @@ def exercise_edit(request):
 
 
 @login_required
+@trainer_or_owner_required
 def exercise_personalize(request):
     organization = get_organization(request)
 

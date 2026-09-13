@@ -4,6 +4,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 
 from .forms import StudentForm
 from .models import Student
+from apps.organizations.permissions import org_member_required
 
 
 def get_organization(request):
@@ -13,6 +14,7 @@ def get_organization(request):
 
 
 @login_required
+@org_member_required
 def student_list(request):
     organization = get_organization(request)
 
@@ -28,6 +30,7 @@ def student_list(request):
 
 
 @login_required
+@org_member_required
 def student_create(request):
     organization = get_organization(request)
 
@@ -51,6 +54,7 @@ def student_create(request):
 
 
 @login_required
+@org_member_required
 def student_edit(request):
     organization = get_organization(request)
 
