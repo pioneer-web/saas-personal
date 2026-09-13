@@ -487,26 +487,23 @@ def workout_api(request):
                 404,
             )
 
-        session = None
-
-        if action == "start":
-            session = (
-                WorkoutSession.objects
-                .filter(
-                    organization=organization,
-                    student=student,
-                    routine=routine,
-                    status=WorkoutSession.Status.IN_PROGRESS,
-                )
-                .first()
+        session = (
+            WorkoutSession.objects
+            .filter(
+                organization=organization,
+                student=student,
+                routine=routine,
+                status=WorkoutSession.Status.IN_PROGRESS,
             )
+            .first()
+        )
 
-            if not session:
-                session = WorkoutSession.objects.create(
-                    organization=organization,
-                    student=student,
-                    routine=routine,
-                )
+        if action == "start" and not session:
+            session = WorkoutSession.objects.create(
+                organization=organization,
+                student=student,
+                routine=routine,
+            )
 
         items = (
             routine.items
@@ -549,6 +546,30 @@ def workout_api(request):
                         item.exercise.embed_video_url,
                         "image_url":
                         item.exercise.display_image_url,
+                        "completed_sets": (
+                            [
+                                {
+                                    "set_number": log.set_number,
+                                    "reps_done": log.reps_done,
+                                    "load_kg": (
+                                        str(log.load_kg)
+                                        if log.load_kg is not None
+                                        else None
+                                    ),
+                                }
+                                for log in (
+                                    WorkoutSetLog.objects
+                                    .filter(
+                                        organization=organization,
+                                        session=session,
+                                        workout_exercise=item,
+                                    )
+                                    .order_by("set_number")
+                                )
+                            ]
+                            if session
+                            else []
+                        ),
                     }
                     for item in items
                 ],
