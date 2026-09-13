@@ -1,0 +1,21 @@
+{% extends "student_portal/base.html" %}
+{% block content %}
+<div class="flex justify-between">
+<h1 class="text-3xl font-black">Notificações</h1>
+<form method="post">
+{% csrf_token %}
+<button class="text-[#ed8e5f]">Marcar lidas</button>
+</form>
+</div>
+
+<div class="mt-5 space-y-3">
+{% for item in notifications %}
+<div class="rounded-2xl border border-white/10 bg-[#1a1715] p-5">
+<b>{{ item.title }}</b>
+<div class="mt-2 text-sm text-[#b8b3af]">{{ item.body }}</div>
+</div>
+{% empty %}
+<div class="text-[#716b67]">Nenhuma notificação.</div>
+{% endfor %}
+</div>
+{% endblock %}

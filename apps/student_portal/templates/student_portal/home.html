@@ -1,0 +1,47 @@
+{% extends "student_portal/base.html" %}
+{% block content %}
+<div class="space-y-5">
+
+<div class="rounded-[30px] bg-gradient-to-br from-[#9e1d1f] to-[#ed5d26] p-6">
+<span class="text-white/70">Olá,</span>
+<h1 class="text-3xl font-black">{{ student.name }}</h1>
+<div class="mt-4 text-sm">
+{{ completed_week }} treino(s) esta semana
+{% if unread_notifications %} • {{ unread_notifications }} aviso(s){% endif %}
+</div>
+</div>
+
+<h2 class="text-xl font-black">Treino de hoje</h2>
+
+{% for schedule in schedules %}
+<form method="post" class="rounded-[24px] border border-[#ed5d26]/30 bg-[#1a1715] p-5">
+{% csrf_token %}
+<input type="hidden" name="routine_id" value="{{ schedule.routine.id }}">
+<b>{{ schedule.routine.name }}</b>
+<div class="text-sm text-[#b8b3af]">{{ schedule.routine.plan.name }}</div>
+<button class="mt-4 w-full rounded-2xl bg-[#ed5d26] p-3 font-black">Abrir treino</button>
+</form>
+{% empty %}
+<div class="rounded-2xl bg-[#1a1715] p-4 text-[#b8b3af]">
+Nenhum treino agendado para hoje.
+</div>
+{% endfor %}
+
+<h2 class="text-xl font-black">Meus treinos</h2>
+
+{% for routine in routines %}
+<form method="post" class="rounded-2xl border border-white/10 bg-[#1a1715] p-4">
+{% csrf_token %}
+<input type="hidden" name="routine_id" value="{{ routine.id }}">
+<div class="flex items-center justify-between">
+<div>
+<b>{{ routine.name }}</b>
+<div class="text-sm text-[#b8b3af]">{{ routine.plan.name }}</div>
+</div>
+<button class="rounded-xl bg-white/5 px-4 py-2">Abrir</button>
+</div>
+</form>
+{% endfor %}
+
+</div>
+{% endblock %}

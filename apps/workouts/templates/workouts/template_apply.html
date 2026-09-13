@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Aplicar modelo{% endblock %}
+{% block content %}
+
+<div class="mx-auto max-w-3xl space-y-6">
+
+<div>
+    <span class="text-xs font-bold uppercase tracking-[.25em] text-[#ed5d26]">Modelo</span>
+    <h1 class="mt-2 text-3xl font-black">{{ template.name }}</h1>
+    <p class="mt-1 text-sm text-[#b8b3af]">Selecione um ou vários alunos.</p>
+</div>
+
+<form method="post" class="space-y-5 rounded-[28px] border border-white/10 bg-[#1a1715] p-5 sm:p-8">
+    {% csrf_token %}
+
+    {% for field in form %}
+    <div>
+        <label class="mb-2 block text-sm font-bold">{{ field.label }}</label>
+        {{ field }}
+        {% for error in field.errors %}
+        <div class="mt-1 text-sm text-red-400">{{ error }}</div>
+        {% endfor %}
+    </div>
+    {% endfor %}
+
+    <button class="w-full rounded-2xl bg-gradient-to-r from-[#ce3221] to-[#ed5d26] px-5 py-4 font-black">
+        Aplicar modelo
+    </button>
+</form>
+
+</div>
+
+<style>
+input:not([type="checkbox"]), select, textarea {
+    width:100%; min-height:48px; border:1px solid rgba(255,255,255,.1);
+    border-radius:14px; padding:12px 15px; background:#0c0c09; color:white;
+}
+#id_students { display:grid; gap:8px; }
+#id_students label {
+    display:flex; align-items:center; gap:10px; background:rgba(255,255,255,.04);
+    border-radius:14px; padding:12px;
+}
+</style>
+{% endblock %}

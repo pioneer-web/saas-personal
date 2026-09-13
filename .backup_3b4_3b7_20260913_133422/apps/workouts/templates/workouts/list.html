@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}Treinos | Personal{% endblock %}
+
+{% block content %}
+
+<div class="space-y-6">
+
+<div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+
+    <div>
+        <span class="text-xs font-bold uppercase tracking-[.25em] text-[#ed5d26]">
+            Prescrição
+        </span>
+
+        <h1 class="mt-2 text-3xl font-black">
+            Planos de treino
+        </h1>
+
+        <p class="mt-1 text-sm text-[#b8b3af]">
+            Organize as fichas dos seus alunos.
+        </p>
+    </div>
+
+    <a href="{% url 'workouts:create' %}"
+       class="flex min-h-12 items-center justify-center rounded-2xl
+              bg-gradient-to-r from-[#ce3221] to-[#ed5d26]
+              px-6 font-bold text-white">
+        + Novo plano
+    </a>
+
+</div>
+
+
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+
+{% for plan in plans %}
+
+<div class="rounded-[26px] border border-white/10
+            bg-[#1a1715] p-5">
+
+    <div class="flex items-start justify-between gap-4">
+
+        <div>
+
+            <h2 class="text-xl font-black">
+                {{ plan.name }}
+            </h2>
+
+            <p class="mt-1 text-[#b8b3af]">
+                {{ plan.student.name }}
+            </p>
+
+        </div>
+
+        <span class="rounded-full bg-[#ed5d26]/15
+                     px-3 py-1 text-xs font-bold
+                     text-[#ed8e5f]">
+            {{ plan.get_status_display }}
+        </span>
+
+    </div>
+
+    {% if plan.objective %}
+    <p class="mt-4 text-sm text-[#b8b3af]">
+        {{ plan.objective }}
+    </p>
+    {% endif %}
+
+    <div class="mt-5 text-sm text-[#716b67]">
+        {{ plan.routines.count }} treino(s)
+    </div>
+
+    <form method="post" class="mt-4">
+
+        {% csrf_token %}
+
+        <input type="hidden"
+               name="plan_id"
+               value="{{ plan.id }}">
+
+        <button class="w-full rounded-2xl bg-white/5
+                       px-4 py-3 font-bold">
+            Abrir plano
+        </button>
+
+    </form>
+
+</div>
+
+{% empty %}
+
+<div class="col-span-full rounded-3xl border
+            border-dashed border-white/10
+            p-12 text-center text-[#b8b3af]">
+
+    Nenhum plano de treino criado.
+
+</div>
+
+{% endfor %}
+
+</div>
+
+</div>
+
+{% endblock %}

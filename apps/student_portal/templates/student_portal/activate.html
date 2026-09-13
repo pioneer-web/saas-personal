@@ -1,0 +1,22 @@
+{% extends "student_portal/base.html" %}
+{% block content %}
+<div class="space-y-6 py-8">
+<h1 class="text-3xl font-black">Ativar conta</h1>
+<p class="text-[#b8b3af]">Use o código de 6 dígitos fornecido pelo seu personal.</p>
+
+<form method="post" class="space-y-4 rounded-[30px] border border-white/10 bg-[#1a1715] p-5">
+{% csrf_token %}
+{% if error %}<div class="text-red-400">{{ error }}</div>{% endif %}
+{% for field in form %}
+<div>
+<label class="mb-2 block font-bold">{{ field.label }}</label>
+{{ field }}
+{% for error in field.errors %}
+<div class="text-red-400">{{ error }}</div>
+{% endfor %}
+</div>
+{% endfor %}
+<button class="w-full rounded-2xl bg-[#ed5d26] p-4 font-black">Ativar acesso</button>
+</form>
+</div>
+{% endblock %}

@@ -6,9 +6,6 @@ from django.urls import include, path
 from apps.core.views import dashboard, health
 
 urlpatterns = [
-    path("acessos-alunos/", include("apps.student_portal.trainer_urls")),
-    path("api/student/", include("apps.student_portal.api_urls")),
-    path("app/", include("apps.student_portal.urls")),
     path("treinos/", include("apps.workouts.urls")),
     path("exercicios/", include("apps.exercises.urls")),
     path("admin/", admin.site.urls),

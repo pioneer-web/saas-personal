@@ -1,0 +1,36 @@
+{% extends "student_portal/base.html" %}
+{% block content %}
+<h1 class="mb-5 text-3xl font-black">Evolução</h1>
+
+<div class="mb-5 flex flex-wrap gap-2">
+{% for exercise in exercises %}
+<form method="post">
+{% csrf_token %}
+<input type="hidden" name="exercise_id" value="{{ exercise.id }}">
+<button class="rounded-xl px-3 py-2 {% if selected.id == exercise.id %}bg-[#ed5d26]{% else %}bg-white/5{% endif %}">
+{{ exercise.display_name }}
+</button>
+</form>
+{% endfor %}
+</div>
+
+{% if selected %}
+<div class="rounded-3xl bg-[#1a1715] p-5">
+<h2 class="text-xl font-black">{{ selected.display_name }}</h2>
+
+<div class="mt-5 space-y-4">
+{% for point in points %}
+<div>
+<div class="flex justify-between text-sm">
+<span>{{ point.date|date:"d/m" }}</span>
+<b>{{ point.load }} kg</b>
+</div>
+<div class="mt-1 h-3 rounded-full bg-white/5">
+<div class="h-3 rounded-full bg-[#ed5d26]" style="width:{{ point.percentage }}%"></div>
+</div>
+</div>
+{% endfor %}
+</div>
+</div>
+{% endif %}
+{% endblock %}

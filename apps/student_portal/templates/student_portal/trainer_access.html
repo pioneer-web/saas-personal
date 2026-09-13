@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="space-y-6">
+
+<div>
+<span class="text-xs font-bold uppercase tracking-[.25em] text-[#ed5d26]">App do aluno</span>
+<h1 class="mt-2 text-3xl font-black">Acessos</h1>
+</div>
+
+{% if access_code %}
+<div class="rounded-[28px] bg-[#ed5d26]/10 p-6">
+<div>Código para {{ access_student }}</div>
+<div class="mt-2 text-5xl font-black tracking-[.15em] text-[#ed8e5f]">{{ access_code }}</div>
+<div class="mt-2 text-sm text-[#b8b3af]">
+Válido até {{ access_expiry }} • ativação em /app/ativar/
+</div>
+</div>
+{% endif %}
+
+<div class="grid gap-3 lg:grid-cols-2">
+{% for student in students %}
+<div class="rounded-2xl border border-white/10 bg-[#1a1715] p-5">
+<b>{{ student.name }}</b>
+<div class="text-sm text-[#b8b3af]">{{ student.email|default:"Sem e-mail" }}</div>
+
+{% if student.app_account %}
+<div class="mt-3 text-green-400">Acesso ativo</div>
+{% else %}
+<form method="post" action="{% url 'student_access:generate' %}" class="mt-3">
+{% csrf_token %}
+<input type="hidden" name="student_id" value="{{ student.id }}">
+<button class="w-full rounded-xl bg-[#ed5d26] p-3 font-black">Gerar código</button>
+</form>
+{% endif %}
+</div>
+{% endfor %}
+</div>
+
+</div>
+{% endblock %}

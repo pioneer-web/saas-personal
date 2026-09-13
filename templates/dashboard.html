@@ -1,12 +1,38 @@
-<!doctype html>
-<html lang="pt-br">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Painel | SaaS Personal</title></head>
-<body>
-  <main>
-    <h1>Etapa 1 funcionando</h1>
-    <p>Usuário: {{ request.user.email }}</p>
-    <p>Organização: {% if organization %}{{ organization.name }}{% else %}nenhuma vinculada ainda{% endif %}</p>
-    <form action="{% url 'logout' %}" method="post">{% csrf_token %}<button type="submit">Sair</button></form>
-  </main>
-</body>
-</html>
+{% extends "base.html" %}
+
+{% block title %}Dashboard | SaaS Personal{% endblock %}
+
+{% block content %}
+
+<div class="mb-8">
+    <h1 class="text-2xl font-bold">Dashboard</h1>
+    <p class="text-slate-500 mt-1">
+        Visão geral do seu negócio
+    </p>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+
+    <div class="bg-white border rounded-xl p-6 shadow-sm">
+        <p class="text-sm text-slate-500">Alunos</p>
+        <p class="text-3xl font-bold mt-2">—</p>
+    </div>
+
+    <div class="bg-white border rounded-xl p-6 shadow-sm">
+        <p class="text-sm text-slate-500">Treinos ativos</p>
+        <p class="text-3xl font-bold mt-2">—</p>
+    </div>
+
+    <div class="bg-white border rounded-xl p-6 shadow-sm">
+        <p class="text-sm text-slate-500">Receita mensal</p>
+        <p class="text-3xl font-bold mt-2">—</p>
+    </div>
+
+    <div class="bg-white border rounded-xl p-6 shadow-sm">
+        <p class="text-sm text-slate-500">Pendências</p>
+        <p class="text-3xl font-bold mt-2">—</p>
+    </div>
+
+</div>
+
+{% endblock %}

@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+
+{% block title %}Exercícios | Personal{% endblock %}
+
+{% block content %}
+
+<div class="space-y-6">
+
+<div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+
+    <div>
+        <span class="text-xs font-bold uppercase tracking-[.25em] text-[#ed5d26]">
+            Biblioteca
+        </span>
+
+        <h1 class="mt-2 text-3xl font-black text-white">
+            Exercícios
+        </h1>
+
+        <p class="mt-1 text-sm text-[#b8b3af]">
+            Biblioteca global e exercícios personalizados.
+        </p>
+    </div>
+
+    <a href="{% url 'exercises:create' %}"
+       class="flex min-h-12 items-center justify-center rounded-2xl
+              bg-gradient-to-r from-[#ce3221] to-[#ed5d26]
+              px-6 font-bold text-white">
+        + Novo exercício
+    </a>
+
+</div>
+
+
+<form method="post"
+      class="rounded-3xl border border-white/5 bg-[#1a1715] p-3">
+
+    {% csrf_token %}
+    <input type="hidden" name="action" value="search">
+
+    <div class="flex gap-2">
+
+        <input type="search"
+               name="search"
+               value="{{ search }}"
+               placeholder="Pesquisar exercício..."
+               class="min-h-12 flex-1 rounded-2xl border
+                      border-white/10 bg-[#0c0c09]
+                      px-4 text-white">
+
+        <button class="rounded-2xl bg-[#ed5d26]
+                       px-5 font-bold text-white">
+            Buscar
+        </button>
+
+    </div>
+
+</form>
+
+
+<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+
+{% for exercise in exercises %}
+
+<article class="overflow-hidden rounded-[26px]
+                border border-white/10 bg-[#1a1715]">
+
+    <div class="relative aspect-[16/11] overflow-hidden bg-[#100e0c]">
+
+        {% if exercise.display_image_url %}
+
+        <img src="{{ exercise.display_image_url }}"
+             alt="{{ exercise.display_name }}"
+             loading="lazy"
+             class="h-full w-full object-cover">
+
+        {% else %}
+
+        <div class="flex h-full items-center justify-center
+                    text-[#716b67]">
+            Sem mídia
+        </div>
+
+        {% endif %}
+
+
+        <div class="absolute right-3 top-3">
+
+            {% if exercise.is_global %}
+
+            <span class="rounded-full bg-black/80
+                         px-3 py-1 text-xs font-bold
+                         text-[#ed8e5f]">
+                Biblioteca
+            </span>
+
+            {% else %}
+
+            <span class="rounded-full bg-[#ed5d26]
+                         px-3 py-1 text-xs font-bold
+                         text-white">
+                Meu exercício
+            </span>
+
+            {% endif %}
+
+        </div>
+
+    </div>
+
+
+    <div class="p-5">
+
+        <h2 class="text-lg font-black text-white">
+            {{ exercise.display_name }}
+        </h2>
+
+        <p class="mt-1 text-sm text-[#b8b3af]">
+            {{ exercise.display_primary_muscle }}
+        </p>
+
+
+        <div class="mt-3 flex flex-wrap gap-2">
+
+            {% if exercise.display_difficulty %}
+            <span class="rounded-full bg-[#9e1d1f]/35
+                         px-3 py-1 text-xs text-[#ed8e5f]">
+                {{ exercise.display_difficulty }}
+            </span>
+            {% endif %}
+
+            {% if exercise.media_provider %}
+            <span class="rounded-full bg-white/10
+                         px-3 py-1 text-xs text-white">
+                ▶ {{ exercise.media_provider }}
+            </span>
+            {% endif %}
+
+        </div>
+
+
+        {% if exercise.media_url %}
+
+        <a href="{{ exercise.media_url }}"
+           target="_blank"
+           rel="noopener"
+           class="mt-4 block rounded-2xl
+                  bg-[#ed5d26]/15 px-4 py-3
+                  text-center text-sm font-bold
+                  text-[#ed8e5f]">
+            ▶ Ver vídeo
+        </a>
+
+        {% endif %}
+
+
+        {% if exercise.is_global %}
+
+            {% if request.user.is_superuser %}
+
+            <form method="post" class="mt-3">
+                {% csrf_token %}
+                <input type="hidden"
+                       name="action"
+                       value="edit">
+                <input type="hidden"
+                       name="exercise_id"
+                       value="{{ exercise.id }}">
+
+                <button class="w-full rounded-2xl
+                               bg-white/5 px-4 py-3
+                               font-bold text-white">
+                    Editar biblioteca
+                </button>
+            </form>
+
+            {% else %}
+
+            <form method="post" class="mt-3">
+                {% csrf_token %}
+                <input type="hidden"
+                       name="action"
+                       value="personalize">
+                <input type="hidden"
+                       name="exercise_id"
+                       value="{{ exercise.id }}">
+
+                <button class="w-full rounded-2xl
+                               bg-white/5 px-4 py-3
+                               font-bold text-white">
+                    Personalizar
+                </button>
+            </form>
+
+            {% endif %}
+
+        {% else %}
+
+            <form method="post" class="mt-3">
+                {% csrf_token %}
+                <input type="hidden"
+                       name="action"
+                       value="edit">
+                <input type="hidden"
+                       name="exercise_id"
+                       value="{{ exercise.id }}">
+
+                <button class="w-full rounded-2xl
+                               bg-white/5 px-4 py-3
+                               font-bold text-white">
+                    Editar
+                </button>
+            </form>
+
+
+            {% if exercise.publication_status == "private" or exercise.publication_status == "rejected" %}
+
+            <form method="post" class="mt-2">
+                {% csrf_token %}
+
+                <input type="hidden"
+                       name="action"
+                       value="request_publish">
+
+                <input type="hidden"
+                       name="exercise_id"
+                       value="{{ exercise.id }}">
+
+                <button class="w-full rounded-2xl
+                               border border-[#ed5d26]/40
+                               px-4 py-3 font-bold
+                               text-[#ed8e5f]">
+                    Solicitar publicação
+                </button>
+
+            </form>
+
+            {% elif exercise.publication_status == "pending" %}
+
+            <div class="mt-3 rounded-2xl
+                        bg-yellow-500/10 px-4 py-3
+                        text-center text-sm font-bold
+                        text-yellow-400">
+                Aguardando aprovação
+            </div>
+
+            {% elif exercise.publication_status == "approved" %}
+
+            <div class="mt-3 rounded-2xl
+                        bg-green-500/10 px-4 py-3
+                        text-center text-sm font-bold
+                        text-green-400">
+                Publicação aprovada
+            </div>
+
+            {% endif %}
+
+        {% endif %}
+
+    </div>
+
+</article>
+
+{% empty %}
+
+<div class="col-span-full p-12 text-center text-[#b8b3af]">
+    Nenhum exercício encontrado.
+</div>
+
+{% endfor %}
+
+</div>
+
+</div>
+
+{% endblock %}

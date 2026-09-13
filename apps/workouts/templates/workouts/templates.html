@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Modelos de treino{% endblock %}
+{% block content %}
+
+<div class="space-y-6">
+
+<div>
+    <span class="text-xs font-bold uppercase tracking-[.25em] text-[#ed5d26]">Produtividade</span>
+    <h1 class="mt-2 text-3xl font-black">Modelos de treino</h1>
+    <p class="mt-1 text-sm text-[#b8b3af]">Salve uma prescrição pronta e aplique a vários alunos.</p>
+</div>
+
+<div class="grid gap-4 lg:grid-cols-2">
+{% for template in templates %}
+<div class="rounded-[26px] border border-white/10 bg-[#1a1715] p-5">
+    <h2 class="text-xl font-black">{{ template.name }}</h2>
+    {% if template.objective %}
+    <p class="mt-1 text-sm text-[#b8b3af]">{{ template.objective }}</p>
+    {% endif %}
+
+    <div class="mt-4 text-sm text-[#716b67]">{{ template.routines.count }} treino(s)</div>
+
+    <form method="post" class="mt-4">
+        {% csrf_token %}
+        <input type="hidden" name="template_id" value="{{ template.id }}">
+        <button class="w-full rounded-2xl bg-gradient-to-r from-[#ce3221] to-[#ed5d26] px-5 py-3 font-bold">
+            Aplicar a alunos
+        </button>
+    </form>
+</div>
+{% empty %}
+<div class="col-span-full rounded-3xl border border-dashed border-white/10 p-12 text-center text-[#b8b3af]">
+    Ainda não existem modelos. Abra um plano e use “Salvar como modelo”.
+</div>
+{% endfor %}
+</div>
+
+</div>
+{% endblock %}

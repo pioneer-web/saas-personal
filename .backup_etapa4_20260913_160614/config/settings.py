@@ -20,7 +20,6 @@ INSTALLED_APPS = [
     "apps.students",
     "apps.exercises",
     "apps.workouts",
-    "apps.student_portal",
 ]
 
 MIDDLEWARE = [

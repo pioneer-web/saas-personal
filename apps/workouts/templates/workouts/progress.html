@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block title %}Evolução{% endblock %}
+
+{% block content %}
+
+<div class="mx-auto max-w-5xl space-y-6">
+
+<div>
+
+    <span class="text-xs font-bold uppercase
+                 tracking-[.25em]
+                 text-[#ed5d26]">
+        Performance
+    </span>
+
+    <h1 class="mt-2 text-3xl font-black">
+        Evolução de carga
+    </h1>
+
+</div>
+
+
+<div class="rounded-[26px]
+            border border-white/10
+            bg-[#1a1715] p-5">
+
+    <h2 class="mb-3 font-black">
+        Aluno
+    </h2>
+
+    <div class="flex flex-wrap gap-2">
+
+        {% for item in students %}
+
+        <form method="post">
+
+            {% csrf_token %}
+
+            <input type="hidden"
+                   name="student_id"
+                   value="{{ item.id }}">
+
+            <button
+                class="rounded-2xl px-4 py-2
+                {% if student.id == item.id %}
+                    bg-[#ed5d26]
+                {% else %}
+                    bg-white/5
+                {% endif %}
+                font-bold">
+
+                {{ item.name }}
+
+            </button>
+
+        </form>
+
+        {% endfor %}
+
+    </div>
+
+</div>
+
+
+{% if student %}
+
+<div class="rounded-[26px]
+            border border-white/10
+            bg-[#1a1715] p-5">
+
+    <h2 class="mb-3 font-black">
+        Exercício
+    </h2>
+
+    <div class="flex flex-wrap gap-2">
+
+        {% for item in exercises %}
+
+        <form method="post">
+
+            {% csrf_token %}
+
+            <input type="hidden"
+                   name="exercise_id"
+                   value="{{ item.id }}">
+
+            <button
+                class="rounded-2xl px-4 py-2
+                {% if exercise.id == item.id %}
+                    bg-[#ed5d26]
+                {% else %}
+                    bg-white/5
+                {% endif %}
+                text-sm font-bold">
+
+                {{ item.display_name }}
+
+            </button>
+
+        </form>
+
+        {% empty %}
+
+        <div class="text-sm text-[#b8b3af]">
+            Ainda não existem exercícios concluídos.
+        </div>
+
+        {% endfor %}
+
+    </div>
+
+</div>
+
+{% endif %}
+
+
+{% if exercise %}
+
+<div>
+
+    <h2 class="text-2xl font-black">
+        {{ exercise.display_name }}
+    </h2>
+
+    <p class="text-sm text-[#b8b3af]">
+        Histórico registrado pelo aluno
+    </p>
+
+</div>
+
+
+<div class="space-y-3">
+
+{% for item in progression %}
+
+<div class="flex items-center
+            justify-between
+            rounded-[22px]
+            border border-white/10
+            bg-[#1a1715] p-4">
+
+    <div>
+
+        <div class="font-bold">
+            {{ item.date|date:"d/m/Y" }}
+        </div>
+
+        <div class="text-xs text-[#716b67]">
+            Série {{ item.set_number }}
+        </div>
+
+    </div>
+
+
+    <div class="text-right">
+
+        {% if item.load %}
+
+        <div class="text-xl font-black
+                    text-[#ed8e5f]">
+            {{ item.load }} kg
+        </div>
+
+        {% else %}
+
+        <div class="text-sm text-[#716b67]">
+            Sem carga
+        </div>
+
+        {% endif %}
+
+        <div class="text-sm text-[#b8b3af]">
+            {{ item.reps }} reps
+        </div>
+
+    </div>
+
+</div>
+
+{% empty %}
+
+<div class="rounded-3xl
+            border border-dashed
+            border-white/10
+            p-12 text-center
+            text-[#b8b3af]">
+
+    Ainda não existem registros.
+
+</div>
+
+{% endfor %}
+
+</div>
+
+{% endif %}
+
+</div>
+
+{% endblock %}

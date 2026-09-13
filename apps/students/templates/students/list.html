@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block title %}Alunos | SaaS Personal{% endblock %}
+
+{% block content %}
+
+<div class="flex items-center justify-between mb-8">
+
+    <div>
+        <h1 class="text-2xl font-bold">Alunos</h1>
+        <p class="text-slate-500 mt-1">
+            Gerencie seus alunos
+        </p>
+    </div>
+
+    <a href="{% url 'students:create' %}"
+       class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-medium shadow-sm">
+        + Novo aluno
+    </a>
+
+</div>
+
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+
+    <div class="overflow-x-auto">
+
+        <table class="w-full">
+
+            <thead class="bg-slate-50 border-b">
+                <tr class="text-left text-sm text-slate-500">
+                    <th class="px-6 py-4">Aluno</th>
+                    <th class="px-6 py-4">Telefone</th>
+                    <th class="px-6 py-4">Status</th>
+                    <th class="px-6 py-4 text-right">Ações</th>
+                </tr>
+            </thead>
+
+            <tbody class="divide-y">
+
+            {% for student in students %}
+
+                <tr class="hover:bg-slate-50">
+
+                    <td class="px-6 py-4">
+                        <div class="font-medium">
+                            {{ student.name }}
+                        </div>
+
+                        <div class="text-sm text-slate-500">
+                            {{ student.email|default:"Sem e-mail" }}
+                        </div>
+                    </td>
+
+                    <td class="px-6 py-4 text-sm">
+                        {{ student.phone|default:"-" }}
+                    </td>
+
+                    <td class="px-6 py-4">
+
+                        {% if student.status == "active" %}
+                            <span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-medium">
+                                Ativo
+                            </span>
+                        {% else %}
+                            <span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-xs font-medium">
+                                {{ student.get_status_display }}
+                            </span>
+                        {% endif %}
+
+                    </td>
+
+                    <td class="px-6 py-4 text-right">
+
+                        <form method="post" action="{% url 'students:edit' %}" class="inline">
+                            {% csrf_token %}
+                            <input type="hidden" name="select_student_id" value="{{ student.id }}">
+                            <button type="submit"
+                                    class="text-blue-600 hover:text-blue-800 font-medium">
+                                Editar
+                            </button>
+                        </form>
+
+                    </td>
+
+                </tr>
+
+            {% empty %}
+
+                <tr>
+                    <td colspan="4"
+                        class="px-6 py-12 text-center text-slate-500">
+                        Nenhum aluno cadastrado.
+                    </td>
+                </tr>
+
+            {% endfor %}
+
+            </tbody>
+
+        </table>
+
+    </div>
+
+</div>
+
+{% endblock %}

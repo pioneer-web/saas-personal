@@ -1,0 +1,18 @@
+{% extends "student_portal/base.html" %}
+{% block content %}
+<h1 class="mb-5 text-3xl font-black">Histórico</h1>
+
+<div class="space-y-3">
+{% for session in sessions %}
+<div class="rounded-2xl border border-white/10 bg-[#1a1715] p-5">
+<b>{{ session.routine.name }}</b>
+<div class="text-sm text-[#b8b3af]">{{ session.routine.plan.name }}</div>
+<div class="mt-2 text-sm text-[#ed8e5f]">
+{{ session.completed_at|date:"d/m/Y H:i" }}
+</div>
+</div>
+{% empty %}
+<div class="text-[#716b67]">Nenhum treino concluído.</div>
+{% endfor %}
+</div>
+{% endblock %}

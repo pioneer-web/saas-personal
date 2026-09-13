@@ -1,0 +1,129 @@
+{% extends "student_portal/base.html" %}
+{% block content %}
+<div class="space-y-5">
+
+<a href="{% url 'student_portal:home' %}" class="text-[#ed8e5f]">← Voltar</a>
+
+<div class="rounded-[30px] bg-gradient-to-br from-[#9e1d1f] to-[#ed5d26] p-6">
+<div class="text-sm">{{ routine.plan.name }}</div>
+<h1 class="text-3xl font-black">{{ routine.name }}</h1>
+
+{% if not session %}
+<form method="post" class="mt-4">
+{% csrf_token %}
+<input type="hidden" name="action" value="start">
+<button class="w-full rounded-2xl bg-white p-3 font-black text-[#ce3221]">▶ Iniciar treino</button>
+</form>
+{% endif %}
+</div>
+
+{% for block in workout_data %}
+{% with item=block.item %}
+<article class="overflow-hidden rounded-[28px] border border-white/10 bg-[#1a1715]">
+
+{% if item.exercise.embed_video_url %}
+<div class="aspect-video bg-black">
+<iframe src="{{ item.exercise.embed_video_url }}" class="h-full w-full" allowfullscreen></iframe>
+</div>
+{% elif item.exercise.display_image_url %}
+<img src="{{ item.exercise.display_image_url }}" class="aspect-video w-full object-cover">
+{% endif %}
+
+<div class="p-5">
+<h2 class="text-xl font-black">{{ item.exercise.display_name }}</h2>
+<div class="mt-2 text-sm text-[#b8b3af]">
+{{ item.sets }} séries • {{ item.reps }} reps • {{ item.rest_seconds }}s
+{% if item.rpe_target %} • RPE {{ item.rpe_target }}{% endif %}
+</div>
+
+{% if block.progression %}
+<div class="mt-3 rounded-2xl bg-[#ed5d26]/10 p-3">
+{% if block.progression.reached_target %}
+<b>Sugestão: {{ block.progression.suggested_load }} kg</b>
+{% else %}
+<b>Manter {{ block.progression.last_load }} kg</b>
+{% endif %}
+</div>
+{% endif %}
+
+{% if session %}
+<div class="mt-4 space-y-3">
+{% for set in block.sets %}
+<div class="rounded-2xl bg-[#0c0c09] p-4">
+{% if set.log %}
+<b>Série {{ set.number }} ✅</b>
+<div class="text-sm text-[#b8b3af]">
+{{ set.log.reps_done }} reps
+{% if set.log.load_kg %} • {{ set.log.load_kg }} kg{% endif %}
+</div>
+{% else %}
+<form method="post" class="space-y-2" onsubmit="startRest({{ item.rest_seconds }})">
+{% csrf_token %}
+<input type="hidden" name="action" value="complete_set">
+<input type="hidden" name="item_id" value="{{ item.id }}">
+<input type="hidden" name="set_number" value="{{ set.number }}">
+
+<b>Série {{ set.number }}</b>
+
+<div class="grid grid-cols-2 gap-2">
+<input name="reps_done" value="{{ item.reps }}" placeholder="Reps">
+<input name="load_kg" placeholder="Carga kg"
+{% if block.progression %}
+value="{{ block.progression.suggested_load }}"
+{% elif item.load_kg %}
+value="{{ item.load_kg }}"
+{% endif %}>
+</div>
+
+<button class="w-full rounded-xl bg-[#ed5d26] p-3 font-black">
+Concluir série
+</button>
+</form>
+{% endif %}
+</div>
+{% endfor %}
+</div>
+{% endif %}
+
+</div>
+</article>
+{% endwith %}
+{% endfor %}
+
+{% if session %}
+<form method="post">
+{% csrf_token %}
+<input type="hidden" name="action" value="finish">
+<button class="w-full rounded-2xl bg-[#ed5d26] p-4 font-black">🏁 Finalizar treino</button>
+</form>
+{% endif %}
+
+</div>
+
+<div id="timer" class="fixed bottom-24 left-1/2 hidden -translate-x-1/2 rounded-full bg-[#ed5d26] px-6 py-3 font-black">
+Descanso: <span id="seconds">0</span>s
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function startRest(seconds) {
+  sessionStorage.setItem("restUntil", Date.now() + seconds * 1000);
+}
+setInterval(() => {
+  const until = Number(sessionStorage.getItem("restUntil"));
+  const box = document.getElementById("timer");
+  const output = document.getElementById("seconds");
+  if (!until) return;
+  const remaining = Math.ceil((until - Date.now()) / 1000);
+  if (remaining <= 0) {
+    sessionStorage.removeItem("restUntil");
+    box.classList.add("hidden");
+    if (navigator.vibrate) navigator.vibrate(200);
+  } else {
+    output.textContent = remaining;
+    box.classList.remove("hidden");
+  }
+}, 500);
+</script>
+{% endblock %}

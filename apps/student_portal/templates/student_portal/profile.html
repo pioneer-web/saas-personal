@@ -1,0 +1,13 @@
+{% extends "student_portal/base.html" %}
+{% block content %}
+<div class="rounded-[30px] bg-gradient-to-br from-[#9e1d1f] to-[#ed5d26] p-6">
+<span>Aluno</span>
+<h1 class="text-3xl font-black">{{ student.name }}</h1>
+<div>{{ student.email }}</div>
+</div>
+
+<form method="post" action="{% url 'student_portal:logout' %}" class="mt-5">
+{% csrf_token %}
+<button class="w-full rounded-2xl bg-white/5 p-4 text-red-400">Sair</button>
+</form>
+{% endblock %}
