@@ -4,6 +4,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 
 const bg = Color(0xFF0C0C09);
 const surface = Color(0xFF1A1715);
@@ -508,6 +511,7 @@ class _WorkoutPageState extends State<WorkoutPage> {
   final Map<String, TextEditingController> loads = {};
   Timer? restTimer;
   int rest = 0;
+  final Set<String> completedSets = {};
 
   @override
   void initState() {
@@ -533,7 +537,11 @@ class _WorkoutPageState extends State<WorkoutPage> {
         'action': 'detail',
         'routine_id': widget.routineId,
       });
-      if (mounted) setState(() => data = response);
+      if (mounted) {
+        setState(() {
+          applyWorkoutData(response);
+        });
+      }
     } on ApiException catch (e) {
       if (mounted) setState(() => error = e.message);
     } finally {
@@ -548,7 +556,11 @@ class _WorkoutPageState extends State<WorkoutPage> {
         'action': 'start',
         'routine_id': widget.routineId,
       });
-      if (mounted) setState(() => data = response);
+      if (mounted) {
+        setState(() {
+          applyWorkoutData(response);
+        });
+      }
     } on ApiException catch (e) {
       if (mounted) setState(() => error = e.message);
     } finally {
@@ -557,6 +569,43 @@ class _WorkoutPageState extends State<WorkoutPage> {
   }
 
   String keyFor(String itemId, int setNumber) => '$itemId:$setNumber';
+
+  void applyWorkoutData(Map<String, dynamic> response) {
+    data = response;
+    completedSets.clear();
+
+    final rawItems = response['items'];
+    if (rawItems is! List) return;
+
+    for (final raw in rawItems) {
+      if (raw is! Map) continue;
+
+      final itemId = raw['item_id']?.toString() ?? '';
+      if (itemId.isEmpty) continue;
+
+      final completed = raw['completed_sets'];
+      if (completed is! List) continue;
+
+      for (final rawSet in completed) {
+        if (rawSet is! Map) continue;
+
+        final number = int.tryParse(rawSet['set_number']?.toString() ?? '');
+        if (number == null) continue;
+
+        completedSets.add(keyFor(itemId, number));
+
+        final repsDone = rawSet['reps_done']?.toString() ?? '';
+        if (repsDone.isNotEmpty) {
+          repController(itemId, number).text = repsDone;
+        }
+
+        final loadDone = rawSet['load_kg']?.toString() ?? '';
+        if (loadDone.isNotEmpty) {
+          loadController(itemId, number, null).text = loadDone;
+        }
+      }
+    }
+  }
 
   TextEditingController repController(String itemId, int setNumber) {
     return reps.putIfAbsent(
@@ -591,6 +640,12 @@ class _WorkoutPageState extends State<WorkoutPage> {
         'reps_done': repController(itemId, setNumber).text,
         'load_kg': loadController(itemId, setNumber, item['load_kg']).text,
       });
+
+      if (mounted) {
+        setState(() {
+          completedSets.add(keyFor(itemId, setNumber));
+        });
+      }
 
       final seconds = int.tryParse(item['rest_seconds']?.toString() ?? '') ?? 0;
       if (seconds > 0) startRest(seconds);
@@ -701,10 +756,20 @@ class _WorkoutPageState extends State<WorkoutPage> {
                       '${item['sets']} séries · ${item['reps']} reps · ${item['rest_seconds']}s descanso',
                       style: const TextStyle(color: muted),
                     ),
+                    const SizedBox(height: 14),
+                    ExerciseMedia(
+                      embedUrl: item['embed_url']?.toString() ?? '',
+                      imageUrl: item['image_url']?.toString() ?? '',
+                      externalUrl: item['video_url']?.toString() ?? '',
+                    ),
                     if (active) ...[
                       const SizedBox(height: 14),
                       ...List.generate(sets, (index) {
                         final setNumber = index + 1;
+                        final done = completedSets.contains(
+                          keyFor(itemId, setNumber),
+                        );
+
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 10),
                           child: Row(
@@ -713,8 +778,11 @@ class _WorkoutPageState extends State<WorkoutPage> {
                                 width: 28,
                                 child: Text(
                                   '$setNumber',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontWeight: FontWeight.w900,
+                                    color: done
+                                        ? Colors.greenAccent
+                                        : Colors.white,
                                   ),
                                 ),
                               ),
@@ -722,9 +790,13 @@ class _WorkoutPageState extends State<WorkoutPage> {
                                 child: TextField(
                                   controller: repController(itemId, setNumber),
                                   keyboardType: TextInputType.number,
-                                  decoration: const InputDecoration(
+                                  decoration: InputDecoration(
                                     labelText: 'Reps',
                                     isDense: true,
+                                    filled: true,
+                                    fillColor: done
+                                        ? Colors.green.withValues(alpha: 0.12)
+                                        : surface,
                                   ),
                                 ),
                               ),
@@ -740,18 +812,30 @@ class _WorkoutPageState extends State<WorkoutPage> {
                                       const TextInputType.numberWithOptions(
                                         decimal: true,
                                       ),
-                                  decoration: const InputDecoration(
+                                  decoration: InputDecoration(
                                     labelText: 'Carga kg',
                                     isDense: true,
+                                    filled: true,
+                                    fillColor: done
+                                        ? Colors.green.withValues(alpha: 0.12)
+                                        : surface,
                                   ),
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              IconButton.filled(
+                              IconButton(
+                                style: IconButton.styleFrom(
+                                  backgroundColor: done
+                                      ? Colors.green
+                                      : Colors.white.withValues(alpha: 0.08),
+                                  foregroundColor: done ? Colors.white : muted,
+                                ),
                                 onPressed: saving
                                     ? null
                                     : () => completeSet(item, setNumber),
-                                icon: const Icon(Icons.check),
+                                icon: Icon(
+                                  done ? Icons.check_circle : Icons.check,
+                                ),
                               ),
                             ],
                           ),
@@ -772,6 +856,193 @@ class _WorkoutPageState extends State<WorkoutPage> {
         ],
       ),
     );
+  }
+}
+
+class ExerciseMedia extends StatefulWidget {
+  final String embedUrl;
+  final String imageUrl;
+  final String externalUrl;
+
+  const ExerciseMedia({
+    super.key,
+    required this.embedUrl,
+    required this.imageUrl,
+    required this.externalUrl,
+  });
+
+  @override
+  State<ExerciseMedia> createState() => _ExerciseMediaState();
+}
+
+class _ExerciseMediaState extends State<ExerciseMedia> {
+  YoutubePlayerController? _youtubeController;
+  WebViewController? _webController;
+  bool webError = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    final youtubeId = _youtubeVideoId(
+      widget.externalUrl.isNotEmpty ? widget.externalUrl : widget.embedUrl,
+    );
+
+    if (youtubeId.isNotEmpty) {
+      _youtubeController = YoutubePlayerController.fromVideoId(
+        videoId: youtubeId,
+        autoPlay: false,
+        params: const YoutubePlayerParams(
+          showControls: true,
+          showFullscreenButton: true,
+        ),
+      );
+      return;
+    }
+
+    final uri = Uri.tryParse(widget.embedUrl);
+
+    if (uri != null &&
+        uri.hasScheme &&
+        (uri.scheme == 'https' || uri.scheme == 'http')) {
+      _webController = WebViewController()
+        ..setJavaScriptMode(JavaScriptMode.unrestricted)
+        ..setBackgroundColor(surface)
+        ..setNavigationDelegate(
+          NavigationDelegate(
+            onWebResourceError: (_) {
+              if (mounted) setState(() => webError = true);
+            },
+          ),
+        )
+        ..loadRequest(uri);
+    }
+  }
+
+  String _youtubeVideoId(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return '';
+
+    final host = uri.host.toLowerCase();
+
+    if (host == 'youtu.be') {
+      return uri.pathSegments.isNotEmpty ? uri.pathSegments.first : '';
+    }
+
+    if (host.contains('youtube.com') || host.contains('youtube-nocookie.com')) {
+      final queryId = uri.queryParameters['v'];
+      if (queryId != null && queryId.isNotEmpty) {
+        return queryId;
+      }
+
+      final segments = uri.pathSegments;
+      if (segments.length >= 2 &&
+          (segments[0] == 'shorts' || segments[0] == 'embed')) {
+        return segments[1];
+      }
+    }
+
+    return '';
+  }
+
+  Future<void> openExternal() async {
+    final uri = Uri.tryParse(widget.externalUrl);
+    if (uri == null) return;
+
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  @override
+  void dispose() {
+    _youtubeController?.close();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_youtubeController != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: YoutubePlayer(
+              controller: _youtubeController!,
+              aspectRatio: 16 / 9,
+            ),
+          ),
+          if (widget.externalUrl.isNotEmpty)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: openExternal,
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('Abrir vídeo'),
+              ),
+            ),
+        ],
+      );
+    }
+
+    if (_webController != null && !webError) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: WebViewWidget(controller: _webController!),
+            ),
+          ),
+          if (widget.externalUrl.isNotEmpty)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: openExternal,
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('Abrir vídeo'),
+              ),
+            ),
+        ],
+      );
+    }
+
+    if (widget.imageUrl.isNotEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Image.network(
+              widget.imageUrl,
+              height: 210,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => const SizedBox.shrink(),
+            ),
+          ),
+          if (widget.externalUrl.isNotEmpty)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: openExternal,
+                icon: const Icon(Icons.play_circle_outline),
+                label: const Text('Assistir vídeo'),
+              ),
+            ),
+        ],
+      );
+    }
+
+    if (widget.externalUrl.isNotEmpty) {
+      return OutlinedButton.icon(
+        onPressed: openExternal,
+        icon: const Icon(Icons.play_circle_outline),
+        label: const Text('Assistir vídeo'),
+      );
+    }
+
+    return const SizedBox.shrink();
   }
 }
 
