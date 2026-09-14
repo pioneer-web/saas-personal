@@ -59,6 +59,19 @@ class ApiClient {
   Future<Map<String, dynamic>> home() => request('GET', '/home/');
   Future<Map<String, dynamic>> history() => request('GET', '/history/');
   Future<Map<String, dynamic>> evolution() => request('GET', '/evolution/');
+  Future<Map<String, dynamic>> notifications() =>
+      request('GET', '/notifications/');
+  Future<Map<String, dynamic>> profile() => request('GET', '/profile/');
+  Future<Map<String, dynamic>> markNotificationRead(String id) => request(
+    'POST',
+    '/notifications/',
+    body: {'action': 'mark_read', 'notification_id': id},
+  );
+  Future<Map<String, dynamic>> markAllNotificationsRead() => request(
+    'POST',
+    '/notifications/',
+    body: const {'action': 'mark_all_read'},
+  );
   Future<Map<String, dynamic>> workout(Map<String, dynamic> body) =>
       request('POST', '/workout/', body: body);
 
@@ -343,6 +356,7 @@ class _AppShellState extends State<AppShell> {
       HomePage(api: widget.api),
       HistoryPage(api: widget.api),
       EvolutionPage(api: widget.api),
+      NotificationsPage(api: widget.api),
       ProfilePage(api: widget.api, onLogout: widget.onLogout),
     ];
 
@@ -364,6 +378,11 @@ class _AppShellState extends State<AppShell> {
             icon: Icon(Icons.trending_up_outlined),
             selectedIcon: Icon(Icons.trending_up),
             label: 'Evolução',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.notifications_none),
+            selectedIcon: Icon(Icons.notifications),
+            label: 'Avisos',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),
@@ -1484,51 +1503,463 @@ class MiniLoadChart extends StatelessWidget {
   }
 }
 
-class ProfilePage extends StatelessWidget {
+class NotificationsPage extends StatefulWidget {
   final ApiClient api;
-  final VoidCallback onLogout;
-  const ProfilePage({super.key, required this.api, required this.onLogout});
 
-  Future<void> logout() async {
-    await api.logout();
-    onLogout();
+  const NotificationsPage({super.key, required this.api});
+
+  @override
+  State<NotificationsPage> createState() => _NotificationsPageState();
+}
+
+class _NotificationsPageState extends State<NotificationsPage> {
+  bool loading = true;
+  bool saving = false;
+  String error = '';
+  List notifications = const [];
+  int unreadCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    load();
+  }
+
+  Future<void> load() async {
+    setState(() {
+      loading = true;
+      error = '';
+    });
+
+    try {
+      final data = await widget.api.notifications();
+      if (!mounted) return;
+
+      setState(() {
+        notifications = data['notifications'] is List
+            ? data['notifications'] as List
+            : const [];
+        unreadCount =
+            int.tryParse(data['unread_count']?.toString() ?? '0') ?? 0;
+      });
+    } on ApiException catch (e) {
+      if (mounted) setState(() => error = e.message);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> markRead(String id) async {
+    if (id.isEmpty || saving) return;
+
+    setState(() => saving = true);
+    try {
+      await widget.api.markNotificationRead(id);
+      await load();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => error = e.message);
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Future<void> markAllRead() async {
+    if (saving || unreadCount == 0) return;
+
+    setState(() => saving = true);
+    try {
+      await widget.api.markAllNotificationsRead();
+      await load();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => error = e.message);
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  String formatDate(dynamic value) {
+    final date = DateTime.tryParse(value?.toString() ?? '')?.toLocal();
+    if (date == null) return '';
+
+    String two(int number) => number.toString().padLeft(2, '0');
+
+    return '${two(date.day)}/${two(date.month)} '
+        '${two(date.hour)}:${two(date.minute)}';
   }
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        const Text(
-          'Perfil',
-          style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
-        ),
-        const SizedBox(height: 20),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'Aplicativo do aluno',
-                  style: TextStyle(fontWeight: FontWeight.w800),
+    if (loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return RefreshIndicator(
+      onRefresh: load,
+      child: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Notificações',
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
                 ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Acesso protegido por token seguro.',
-                  style: TextStyle(color: muted),
+              ),
+              if (unreadCount > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: orange.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '$unreadCount novas',
+                    style: const TextStyle(
+                      color: orange,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                 ),
-                const SizedBox(height: 20),
-                FilledButton.tonal(
-                  onPressed: logout,
-                  child: const Text('Sair'),
-                ),
-              ],
-            ),
+            ],
           ),
+          const SizedBox(height: 6),
+          const Text(
+            'Avisos do seu personal e lembretes do treino.',
+            style: TextStyle(color: muted),
+          ),
+          const SizedBox(height: 18),
+          if (error.isNotEmpty)
+            AppErrorState(message: error, onRetry: load)
+          else ...[
+            if (unreadCount > 0)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: saving ? null : markAllRead,
+                  icon: const Icon(Icons.done_all),
+                  label: const Text('Marcar todas como lidas'),
+                ),
+              ),
+            if (notifications.isEmpty)
+              const EmptyState(
+                icon: Icons.notifications_none,
+                title: 'Tudo tranquilo por aqui',
+                message: 'Quando houver um aviso, ele aparecerá nesta tela.',
+              )
+            else
+              ...notifications.map((raw) {
+                final item = raw is Map ? raw : const {};
+                final isRead = item['is_read'] == true;
+                final id = item['id']?.toString() ?? '';
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: isRead ? null : () => markRead(id),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 10,
+                            height: 10,
+                            margin: const EdgeInsets.only(top: 5),
+                            decoration: BoxDecoration(
+                              color: isRead ? muted : orange,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  (item['title'] ?? 'Aviso').toString(),
+                                  style: TextStyle(
+                                    fontWeight: isRead
+                                        ? FontWeight.w600
+                                        : FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                                Text(
+                                  (item['body'] ?? '').toString(),
+                                  style: const TextStyle(color: muted),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  formatDate(item['created_at']),
+                                  style: const TextStyle(
+                                    color: muted,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }),
+          ],
+          const SizedBox(height: 30),
+        ],
+      ),
+    );
+  }
+}
+
+class AppErrorState extends StatelessWidget {
+  final String message;
+  final Future<void> Function() onRetry;
+
+  const AppErrorState({
+    super.key,
+    required this.message,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          children: [
+            const Icon(Icons.cloud_off_outlined, color: orange, size: 34),
+            const SizedBox(height: 10),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: muted),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Tentar novamente'),
+            ),
+          ],
         ),
-      ],
+      ),
+    );
+  }
+}
+
+class EmptyState extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String message;
+
+  const EmptyState({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          children: [
+            Icon(icon, color: orange, size: 38),
+            const SizedBox(height: 10),
+            Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: muted),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class ProfilePage extends StatefulWidget {
+  final ApiClient api;
+  final VoidCallback onLogout;
+
+  const ProfilePage({super.key, required this.api, required this.onLogout});
+
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  bool loading = true;
+  bool loggingOut = false;
+  String error = '';
+  Map<String, dynamic> data = {};
+
+  @override
+  void initState() {
+    super.initState();
+    load();
+  }
+
+  Future<void> load() async {
+    setState(() {
+      loading = true;
+      error = '';
+    });
+
+    try {
+      final response = await widget.api.profile();
+      if (mounted) setState(() => data = response);
+    } on ApiException catch (e) {
+      if (mounted) setState(() => error = e.message);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> logout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Sair do aplicativo?'),
+        content: const Text(
+          'Você precisará entrar novamente com seu e-mail e senha.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Sair'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => loggingOut = true);
+    await widget.api.logout();
+    if (mounted) widget.onLogout();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final student = data['student'] is Map ? data['student'] as Map : const {};
+    final organization = data['organization'] is Map
+        ? data['organization'] as Map
+        : const {};
+
+    return RefreshIndicator(
+      onRefresh: load,
+      child: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          const Text(
+            'Perfil',
+            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 18),
+          if (error.isNotEmpty)
+            AppErrorState(message: error, onRetry: load)
+          else ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CircleAvatar(
+                      radius: 28,
+                      backgroundColor: orange.withValues(alpha: 0.15),
+                      child: const Icon(Icons.person, color: orange, size: 30),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      (student['name'] ?? 'Aluno').toString(),
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      (student['email'] ?? '').toString(),
+                      style: const TextStyle(color: muted),
+                    ),
+                    if ((student['phone'] ?? '').toString().isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        (student['phone'] ?? '').toString(),
+                        style: const TextStyle(color: muted),
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        Chip(
+                          avatar: const Icon(
+                            Icons.verified_user_outlined,
+                            size: 17,
+                          ),
+                          label: Text(
+                            (student['status'] ?? 'Ativo').toString(),
+                          ),
+                        ),
+                        Chip(
+                          avatar: const Icon(Icons.fitness_center, size: 17),
+                          label: Text(
+                            (organization['name'] ?? 'Personal').toString(),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Card(
+              child: ListTile(
+                leading: Icon(Icons.lock_outline, color: orange),
+                title: Text('Sessão protegida'),
+                subtitle: Text(
+                  'Seu acesso usa token seguro armazenado no dispositivo.',
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.tonalIcon(
+              onPressed: loggingOut ? null : logout,
+              icon: const Icon(Icons.logout),
+              label: Text(loggingOut ? 'Saindo...' : 'Sair'),
+            ),
+          ],
+          const SizedBox(height: 30),
+        ],
+      ),
     );
   }
 }

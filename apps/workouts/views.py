@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from apps.exercises.models import Exercise
 from apps.students.models import Student
+from apps.student_portal.models import StudentNotification
 from apps.organizations.permissions import trainer_or_owner_required
 
 from .forms import (
@@ -38,6 +39,25 @@ def organization_or_403(request):
         raise PermissionDenied("Usuário sem organização ativa.")
     return request.organization
 
+
+def _notify_plan_student(plan, title, body):
+    cutoff = timezone.now() - timedelta(minutes=10)
+
+    exists = StudentNotification.objects.filter(
+        organization=plan.organization,
+        student=plan.student,
+        title=title,
+        body=body,
+        created_at__gte=cutoff,
+    ).exists()
+
+    if not exists:
+        StudentNotification.objects.create(
+            organization=plan.organization,
+            student=plan.student,
+            title=title,
+            body=body,
+        )
 
 def _upper_rep_target(reps):
     numbers = [int(n) for n in re.findall(r"\d+", reps or "")]
@@ -149,6 +169,11 @@ def plan_create(request):
             plan = form.save(commit=False)
             plan.organization = organization
             plan.save()
+            _notify_plan_student(
+                plan,
+                "Novo treino disponível",
+                f"{plan.name} foi criado pelo seu personal.",
+            )
             request.session["editing_workout_plan_id"] = str(plan.pk)
             return redirect("workouts:edit")
     else:
@@ -183,7 +208,12 @@ def plan_edit(request):
             organization=organization,
         )
         if form.is_valid():
-            form.save()
+            updated_plan = form.save()
+            _notify_plan_student(
+                updated_plan,
+                "Treino atualizado",
+                f"{updated_plan.name} recebeu alterações do seu personal.",
+            )
             return redirect("workouts:edit")
     else:
         form = WorkoutPlanForm(
@@ -227,6 +257,11 @@ def routine_add(request):
             routine.plan = plan
             routine.order = last_order + 1
             routine.save()
+            _notify_plan_student(
+                plan,
+                "Treino atualizado",
+                f"{plan.name} recebeu alterações do seu personal.",
+            )
 
     return redirect("workouts:edit")
 
@@ -281,6 +316,11 @@ def routine_builder(request):
                 item.routine = routine
                 item.order = last_order + 1
                 item.save()
+                _notify_plan_student(
+                    routine.plan,
+                    "Treino atualizado",
+                    f"{routine.plan.name} recebeu alterações do seu personal.",
+                )
                 return redirect("workouts:builder")
 
         elif action == "start_edit":
@@ -301,6 +341,11 @@ def routine_builder(request):
             )
             if form.is_valid():
                 form.save()
+                _notify_plan_student(
+                    routine.plan,
+                    "Treino atualizado",
+                    f"{routine.plan.name} recebeu alterações do seu personal.",
+                )
                 request.session.pop("editing_workout_item_id", None)
                 return redirect("workouts:builder")
 
@@ -316,6 +361,11 @@ def routine_builder(request):
                 organization=organization,
             )
             item.delete()
+            _notify_plan_student(
+                routine.plan,
+                "Treino atualizado",
+                f"{routine.plan.name} recebeu alterações do seu personal.",
+            )
             return redirect("workouts:builder")
 
     if request.method != "POST" or request.POST.get("action") not in {"add", "save_edit"}:

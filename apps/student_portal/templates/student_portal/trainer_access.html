@@ -4,7 +4,10 @@
 
 <div>
 <span class="text-xs font-bold uppercase tracking-[.25em] text-[#ed5d26]">App do aluno</span>
-<h1 class="mt-2 text-3xl font-black">Acessos</h1>
+<h1 class="mt-2 text-3xl font-black">Acessos e avisos</h1>
+<p class="mt-2 text-sm text-[#b8b3af]">
+Gerencie o acesso e envie mensagens diretamente para o aplicativo do aluno.
+</p>
 </div>
 
 {% if access_code %}
@@ -25,6 +28,30 @@ Válido até {{ access_expiry }} • ativação em /app/ativar/
 
 {% if student.app_account %}
 <div class="mt-3 text-green-400">Acesso ativo</div>
+
+<form method="post" action="{% url 'student_access:notice' %}" class="mt-5 space-y-3">
+{% csrf_token %}
+<input type="hidden" name="student_id" value="{{ student.id }}">
+<input
+  type="text"
+  name="title"
+  maxlength="160"
+  required
+  placeholder="Título do aviso"
+  class="w-full rounded-xl border border-white/10 bg-black/20 p-3"
+>
+<textarea
+  name="body"
+  maxlength="2000"
+  required
+  rows="3"
+  placeholder="Mensagem para o aluno"
+  class="w-full rounded-xl border border-white/10 bg-black/20 p-3"
+></textarea>
+<button class="w-full rounded-xl bg-[#ed5d26] p-3 font-black">
+Enviar aviso
+</button>
+</form>
 {% else %}
 <form method="post" action="{% url 'student_access:generate' %}" class="mt-3">
 {% csrf_token %}
@@ -32,6 +59,10 @@ Válido até {{ access_expiry }} • ativação em /app/ativar/
 <button class="w-full rounded-xl bg-[#ed5d26] p-3 font-black">Gerar código</button>
 </form>
 {% endif %}
+</div>
+{% empty %}
+<div class="rounded-2xl border border-white/10 bg-[#1a1715] p-5 text-[#b8b3af]">
+Nenhum aluno cadastrado.
 </div>
 {% endfor %}
 </div>

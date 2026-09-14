@@ -10,4 +10,6 @@ urlpatterns = [
     path("workout/", api.workout_api),
     path("history/", api.history_api),
     path("evolution/", api.evolution_api),
+    path("notifications/", api.notifications_api),
+    path("profile/", api.profile_api),
 ]

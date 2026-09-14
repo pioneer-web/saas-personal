@@ -1037,3 +1037,59 @@ def icon(request):
         svg,
         content_type="image/svg+xml",
     )
+
+@login_required
+@trainer_or_owner_required
+@require_POST
+def trainer_send_notice(request):
+    organization = organization_or_403(request)
+
+    student_id = parse_uuid(
+        request.POST.get("student_id")
+    )
+    if not student_id:
+        raise PermissionDenied("Aluno inválido.")
+
+    student = get_object_or_404(
+        Student,
+        pk=student_id,
+        organization=organization,
+    )
+
+    title = (
+        request.POST.get("title", "")
+        .strip()
+    )[:160]
+    body = (
+        request.POST.get("body", "")
+        .strip()
+    )[:2000]
+
+    if not title or not body:
+        raise PermissionDenied(
+            "Título e mensagem são obrigatórios."
+        )
+
+    ip = get_client_ip(request) or "unknown"
+    allowed, retry_after = check_rate_limit(
+        "trainer-student-notice",
+        f"{request.user.pk}|{ip}",
+        limit=60,
+        window_seconds=3600,
+        block_seconds=1800,
+    )
+
+    if not allowed:
+        return too_many_requests(
+            "Muitas mensagens. Tente novamente mais tarde.",
+            retry_after,
+        )
+
+    StudentNotification.objects.create(
+        organization=organization,
+        student=student,
+        title=title,
+        body=body,
+    )
+
+    return redirect("student_access:list")

@@ -28,7 +28,30 @@ from apps.workouts.models import (
     WorkoutSetLog,
 )
 
-from .models import StudentAccount, StudentApiToken
+from .models import (
+    StudentAccount,
+    StudentApiToken,
+    StudentNotification,
+)
+
+
+
+def notify_student(organization, student, title, body, dedupe_hours=1):
+    cutoff = timezone.now() - timedelta(hours=dedupe_hours)
+    exists = StudentNotification.objects.filter(
+        organization=organization,
+        student=student,
+        title=title,
+        body=body,
+        created_at__gte=cutoff,
+    ).exists()
+    if not exists:
+        StudentNotification.objects.create(
+            organization=organization,
+            student=student,
+            title=title,
+            body=body,
+        )
 
 
 def json_error(message, status):
@@ -405,12 +428,31 @@ def home_api(request):
         .order_by("order")
     )
 
+    today_schedules = list(schedules)
+    if today_schedules:
+        routine_names = ", ".join(
+            item.routine.name
+            for item in today_schedules[:3]
+        )
+        notify_student(
+            organization,
+            student,
+            "Treino de hoje",
+            f"Hoje você tem: {routine_names}.",
+            dedupe_hours=20,
+        )
+
     return JsonResponse(
         {
             "student": {
                 "name": student.name,
                 "email": student.email,
             },
+            "unread_notifications": StudentNotification.objects.filter(
+                organization=organization,
+                student=student,
+                read_at__isnull=True,
+            ).count(),
             "today": str(today),
             "today_workouts": [
                 {
@@ -721,6 +763,14 @@ def workout_api(request):
             ]
         )
 
+        notify_student(
+            organization,
+            student,
+            "Treino concluído 💪",
+            f"{session.routine.name} foi registrado com sucesso.",
+            dedupe_hours=1,
+        )
+
         return JsonResponse({"ok": True})
 
     return json_error(
@@ -986,5 +1036,123 @@ def history_api(request):
                 }
                 for item in sessions
             ]
+        }
+    )
+
+@csrf_exempt
+@api_student_required
+def notifications_api(request):
+    student = request.student
+    organization = request.student_organization
+
+    items = StudentNotification.objects.filter(
+        organization=organization,
+        student=student,
+    )
+
+    if request.method == "GET":
+        notifications = list(items.order_by("-created_at")[:100])
+
+        return JsonResponse(
+            {
+                "unread_count": items.filter(
+                    read_at__isnull=True,
+                ).count(),
+                "notifications": [
+                    {
+                        "id": str(item.pk),
+                        "title": item.title,
+                        "body": item.body,
+                        "is_read": item.read_at is not None,
+                        "read_at": (
+                            item.read_at.isoformat()
+                            if item.read_at
+                            else None
+                        ),
+                        "created_at": item.created_at.isoformat(),
+                    }
+                    for item in notifications
+                ],
+            }
+        )
+
+    if request.method != "POST":
+        return json_error(
+            "Método não permitido.",
+            405,
+        )
+
+    data = read_json(request)
+    if data is None:
+        return json_error(
+            "JSON inválido.",
+            400,
+        )
+
+    action = data.get("action")
+
+    if action == "mark_all_read":
+        items.filter(
+            read_at__isnull=True,
+        ).update(read_at=timezone.now())
+
+        return JsonResponse({"ok": True})
+
+    if action == "mark_read":
+        notification_id = parse_uuid(
+            data.get("notification_id")
+        )
+        if not notification_id:
+            return json_error(
+                "Notificação inválida.",
+                400,
+            )
+
+        notification = items.filter(
+            pk=notification_id,
+        ).first()
+
+        if not notification:
+            return json_error(
+                "Notificação não encontrada.",
+                404,
+            )
+
+        if notification.read_at is None:
+            notification.read_at = timezone.now()
+            notification.save(
+                update_fields=["read_at"]
+            )
+
+        return JsonResponse({"ok": True})
+
+    return json_error(
+        "Ação inválida.",
+        400,
+    )
+
+
+@csrf_exempt
+@api_student_required
+def profile_api(request):
+    if request.method != "GET":
+        return json_error(
+            "Método não permitido.",
+            405,
+        )
+
+    student = request.student
+
+    return JsonResponse(
+        {
+            "student": {
+                "name": student.name,
+                "email": student.email,
+                "phone": student.phone,
+                "status": student.get_status_display(),
+            },
+            "organization": {
+                "name": request.student_organization.name,
+            },
         }
     )
