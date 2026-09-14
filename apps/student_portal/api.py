@@ -1,4 +1,5 @@
 import json
+import re
 import secrets
 import uuid
 from datetime import timedelta
@@ -727,6 +728,224 @@ def workout_api(request):
         400,
     )
 
+
+@csrf_exempt
+@api_student_required
+def evolution_api(request):
+    if request.method != "GET":
+        return json_error(
+            "Método não permitido.",
+            405,
+        )
+
+    student = request.student
+    organization = request.student_organization
+    today = timezone.localdate()
+    start_7 = today - timedelta(days=6)
+    start_30 = today - timedelta(days=29)
+    previous_30_start = today - timedelta(days=59)
+    previous_30_end = today - timedelta(days=30)
+
+    sessions = list(
+        WorkoutSession.objects
+        .filter(
+            organization=organization,
+            student=student,
+            status=WorkoutSession.Status.COMPLETED,
+            completed_at__date__gte=previous_30_start,
+        )
+        .order_by("completed_at")
+    )
+
+    workouts_7d = sum(
+        1
+        for item in sessions
+        if item.completed_at
+        and item.completed_at.date() >= start_7
+    )
+    workouts_30d = sum(
+        1
+        for item in sessions
+        if item.completed_at
+        and item.completed_at.date() >= start_30
+    )
+    workouts_previous_30d = sum(
+        1
+        for item in sessions
+        if item.completed_at
+        and previous_30_start
+        <= item.completed_at.date()
+        <= previous_30_end
+    )
+
+    logs = list(
+        WorkoutSetLog.objects
+        .filter(
+            organization=organization,
+            session__student=student,
+            session__status=WorkoutSession.Status.COMPLETED,
+            session__completed_at__date__gte=previous_30_start,
+        )
+        .select_related(
+            "session",
+            "workout_exercise__exercise",
+        )
+        .order_by("completed_at")
+    )
+
+    volume_30d = Decimal("0")
+    volume_previous_30d = Decimal("0")
+    exercise_data = {}
+
+    for log in logs:
+        completed_date = (
+            log.session.completed_at.date()
+            if log.session.completed_at
+            else log.completed_at.date()
+        )
+
+        reps_match = re.search(
+            r"\d+",
+            log.reps_done or "",
+        )
+        reps_value = (
+            int(reps_match.group())
+            if reps_match
+            else 0
+        )
+
+        if log.load_kg is not None and reps_value > 0:
+            set_volume = log.load_kg * reps_value
+
+            if completed_date >= start_30:
+                volume_30d += set_volume
+            elif completed_date <= previous_30_end:
+                volume_previous_30d += set_volume
+
+        exercise = log.workout_exercise.exercise
+        exercise_id = str(exercise.pk)
+
+        if exercise_id not in exercise_data:
+            exercise_data[exercise_id] = {
+                "id": exercise_id,
+                "name": exercise.display_name,
+                "max_load": Decimal("0"),
+                "last_load": None,
+                "dates": {},
+            }
+
+        if log.load_kg is not None:
+            item = exercise_data[exercise_id]
+            item["last_load"] = log.load_kg
+            item["max_load"] = max(
+                item["max_load"],
+                log.load_kg,
+            )
+
+            date_key = str(completed_date)
+            previous = item["dates"].get(
+                date_key,
+                Decimal("0"),
+            )
+            item["dates"][date_key] = max(
+                previous,
+                log.load_kg,
+            )
+
+    def change_percent(current, previous):
+        if previous:
+            return round(
+                ((float(current) - float(previous))
+                 / float(previous)) * 100,
+                1,
+            )
+        return 100.0 if current else 0.0
+
+    week_start = today - timedelta(days=today.weekday())
+    weekly_workouts = []
+
+    for offset in range(7, -1, -1):
+        start = week_start - timedelta(days=offset * 7)
+        end = start + timedelta(days=6)
+        count = sum(
+            1
+            for item in sessions
+            if item.completed_at
+            and start <= item.completed_at.date() <= end
+        )
+        weekly_workouts.append(
+            {
+                "label": start.strftime("%d/%m"),
+                "count": count,
+            }
+        )
+
+    exercise_progress = []
+
+    for item in exercise_data.values():
+        if item["max_load"] <= 0:
+            continue
+
+        points = [
+            {
+                "date": date,
+                "load": float(load),
+            }
+            for date, load in sorted(
+                item["dates"].items()
+            )[-12:]
+        ]
+
+        exercise_progress.append(
+            {
+                "id": item["id"],
+                "name": item["name"],
+                "max_load": float(item["max_load"]),
+                "last_load": (
+                    float(item["last_load"])
+                    if item["last_load"] is not None
+                    else None
+                ),
+                "points": points,
+            }
+        )
+
+    exercise_progress.sort(
+        key=lambda item: item["max_load"],
+        reverse=True,
+    )
+
+    return JsonResponse(
+        {
+            "summary": {
+                "workouts_7d": workouts_7d,
+                "workouts_30d": workouts_30d,
+                "workouts_previous_30d":
+                workouts_previous_30d,
+                "workouts_change_pct": change_percent(
+                    workouts_30d,
+                    workouts_previous_30d,
+                ),
+                "volume_30d": round(
+                    float(volume_30d),
+                    1,
+                ),
+                "volume_previous_30d": round(
+                    float(volume_previous_30d),
+                    1,
+                ),
+                "volume_change_pct": change_percent(
+                    volume_30d,
+                    volume_previous_30d,
+                ),
+                "personal_records": len(
+                    exercise_progress
+                ),
+            },
+            "weekly_workouts": weekly_workouts,
+            "exercise_progress": exercise_progress,
+        }
+    )
 
 @csrf_exempt
 @api_student_required

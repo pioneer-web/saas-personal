@@ -9,4 +9,5 @@ urlpatterns = [
     path("home/", api.home_api),
     path("workout/", api.workout_api),
     path("history/", api.history_api),
+    path("evolution/", api.evolution_api),
 ]

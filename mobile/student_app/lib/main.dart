@@ -58,6 +58,7 @@ class ApiClient {
 
   Future<Map<String, dynamic>> home() => request('GET', '/home/');
   Future<Map<String, dynamic>> history() => request('GET', '/history/');
+  Future<Map<String, dynamic>> evolution() => request('GET', '/evolution/');
   Future<Map<String, dynamic>> workout(Map<String, dynamic> body) =>
       request('POST', '/workout/', body: body);
 
@@ -341,6 +342,7 @@ class _AppShellState extends State<AppShell> {
     final pages = [
       HomePage(api: widget.api),
       HistoryPage(api: widget.api),
+      EvolutionPage(api: widget.api),
       ProfilePage(api: widget.api, onLogout: widget.onLogout),
     ];
 
@@ -358,6 +360,11 @@ class _AppShellState extends State<AppShell> {
             label: 'Início',
           ),
           NavigationDestination(icon: Icon(Icons.history), label: 'Histórico'),
+          NavigationDestination(
+            icon: Icon(Icons.trending_up_outlined),
+            selectedIcon: Icon(Icons.trending_up),
+            label: 'Evolução',
+          ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),
             selectedIcon: Icon(Icons.person),
@@ -1120,6 +1127,358 @@ class _HistoryPageState extends State<HistoryPage> {
               );
             }),
         ],
+      ),
+    );
+  }
+}
+
+class EvolutionPage extends StatefulWidget {
+  final ApiClient api;
+
+  const EvolutionPage({super.key, required this.api});
+
+  @override
+  State<EvolutionPage> createState() => _EvolutionPageState();
+}
+
+class _EvolutionPageState extends State<EvolutionPage> {
+  bool loading = true;
+  String error = '';
+  Map<String, dynamic> data = {};
+
+  @override
+  void initState() {
+    super.initState();
+    load();
+  }
+
+  Future<void> load() async {
+    setState(() {
+      loading = true;
+      error = '';
+    });
+
+    try {
+      final response = await widget.api.evolution();
+      if (mounted) setState(() => data = response);
+    } on ApiException catch (e) {
+      if (mounted) setState(() => error = e.message);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  String number(dynamic value, {int decimals = 0}) {
+    final parsed = double.tryParse(value?.toString() ?? '') ?? 0;
+    return parsed.toStringAsFixed(decimals);
+  }
+
+  String changeLabel(dynamic value) {
+    final parsed = double.tryParse(value?.toString() ?? '') ?? 0;
+    final prefix = parsed > 0 ? '+' : '';
+    return '$prefix${parsed.toStringAsFixed(1)}% vs. 30 dias anteriores';
+  }
+
+  Color changeColor(dynamic value) {
+    final parsed = double.tryParse(value?.toString() ?? '') ?? 0;
+    if (parsed > 0) return Colors.greenAccent;
+    if (parsed < 0) return Colors.redAccent;
+    return muted;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final summary = data['summary'] is Map ? data['summary'] as Map : const {};
+    final weekly = data['weekly_workouts'] is List
+        ? data['weekly_workouts'] as List
+        : const [];
+    final exercises = data['exercise_progress'] is List
+        ? data['exercise_progress'] as List
+        : const [];
+
+    return RefreshIndicator(
+      onRefresh: load,
+      child: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          const Text(
+            'Evolução',
+            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Seu progresso em números.',
+            style: TextStyle(color: muted),
+          ),
+          const SizedBox(height: 20),
+          if (error.isNotEmpty)
+            Text(error, style: const TextStyle(color: Colors.redAccent))
+          else ...[
+            GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: 1.35,
+              children: [
+                MetricCard(
+                  title: 'Treinos · 7 dias',
+                  value: '${summary['workouts_7d'] ?? 0}',
+                  icon: Icons.calendar_today_outlined,
+                ),
+                MetricCard(
+                  title: 'Treinos · 30 dias',
+                  value: '${summary['workouts_30d'] ?? 0}',
+                  icon: Icons.fitness_center,
+                  footer: changeLabel(summary['workouts_change_pct']),
+                  footerColor: changeColor(summary['workouts_change_pct']),
+                ),
+                MetricCard(
+                  title: 'Volume · 30 dias',
+                  value: '${number(summary['volume_30d'], decimals: 0)} kg',
+                  icon: Icons.monitor_weight_outlined,
+                  footer: changeLabel(summary['volume_change_pct']),
+                  footerColor: changeColor(summary['volume_change_pct']),
+                ),
+                MetricCard(
+                  title: 'Recordes pessoais',
+                  value: '${summary['personal_records'] ?? 0}',
+                  icon: Icons.emoji_events_outlined,
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Frequência · 8 semanas',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 12),
+            WeeklyBars(items: weekly),
+            const SizedBox(height: 26),
+            const Text(
+              'Evolução de cargas',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 12),
+            if (exercises.isEmpty)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(18),
+                  child: Text(
+                    'Registre cargas durante os treinos para acompanhar sua evolução.',
+                    style: TextStyle(color: muted),
+                  ),
+                ),
+              )
+            else
+              ...exercises.map((raw) {
+                final item = raw is Map ? raw : const {};
+                final points = item['points'] is List
+                    ? item['points'] as List
+                    : const [];
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                (item['name'] ?? 'Exercício').toString(),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              '${number(item['max_load'], decimals: 1)} kg',
+                              style: const TextStyle(
+                                color: Colors.greenAccent,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Última carga: ${number(item['last_load'], decimals: 1)} kg',
+                          style: const TextStyle(color: muted),
+                        ),
+                        const SizedBox(height: 14),
+                        MiniLoadChart(points: points),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+          ],
+          const SizedBox(height: 30),
+        ],
+      ),
+    );
+  }
+}
+
+class MetricCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+  final String? footer;
+  final Color? footerColor;
+
+  const MetricCard({
+    super.key,
+    required this.title,
+    required this.value,
+    required this.icon,
+    this.footer,
+    this.footerColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: orange, size: 20),
+            const Spacer(),
+            Text(
+              value,
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 3),
+            Text(title, style: const TextStyle(color: muted, fontSize: 12)),
+            if (footer != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                footer!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: footerColor ?? muted,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class WeeklyBars extends StatelessWidget {
+  final List items;
+
+  const WeeklyBars({super.key, required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    final maxValue = items.fold<int>(1, (max, raw) {
+      final item = raw is Map ? raw : const {};
+      final count = int.tryParse(item['count']?.toString() ?? '0') ?? 0;
+      return count > max ? count : max;
+    });
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 18, 14, 12),
+        child: SizedBox(
+          height: 150,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: items.map((raw) {
+              final item = raw is Map ? raw : const {};
+              final count = int.tryParse(item['count']?.toString() ?? '0') ?? 0;
+              final ratio = count / maxValue;
+
+              return Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Text(
+                      '$count',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Container(
+                      height: 85 * ratio + 5,
+                      width: 18,
+                      decoration: BoxDecoration(
+                        color: orange,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      (item['label'] ?? '').toString(),
+                      style: const TextStyle(color: muted, fontSize: 9),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class MiniLoadChart extends StatelessWidget {
+  final List points;
+
+  const MiniLoadChart({super.key, required this.points});
+
+  @override
+  Widget build(BuildContext context) {
+    if (points.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    double maxLoad = 1;
+    for (final raw in points) {
+      final item = raw is Map ? raw : const {};
+      final load = double.tryParse(item['load']?.toString() ?? '0') ?? 0;
+      if (load > maxLoad) maxLoad = load;
+    }
+
+    return SizedBox(
+      height: 80,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: points.map((raw) {
+          final item = raw is Map ? raw : const {};
+          final load = double.tryParse(item['load']?.toString() ?? '0') ?? 0;
+          return Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Container(
+                height: 65 * (load / maxLoad) + 4,
+                decoration: BoxDecoration(
+                  color: Colors.green.withValues(alpha: 0.75),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
       ),
     );
   }
